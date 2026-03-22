@@ -1,0 +1,17 @@
+.DS_Store
+.env
+.venv/
+__pycache__/
+tmp/
+scratch/
+candidate_worktree/
+sandbox_vault/
+.obsidian/
+
+artifacts/*
+!artifacts/README.md
+
+state/*
+!state/README.md
+
+files/*

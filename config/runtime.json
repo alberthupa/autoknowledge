@@ -1,0 +1,11 @@
+{
+  "default_profiles": {
+    "file": "deterministic_conservative",
+    "conversation": "deterministic_conservative",
+    "batch": "deterministic_conservative"
+  },
+  "paths": {
+    "default_batch_input_dir": "files",
+    "default_batch_plan_dir": "artifacts/batch_plans"
+  }
+}

@@ -1,0 +1,1556 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AutoKnowledge — Architecture &amp; Usage</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600&family=Inter:wght@300;400;500;600;700;800;900&family=Playfair+Display:wght@700;800;900&display=swap');
+
+  :root {
+    --bg-deep: #0a0c10;
+    --bg-card: #12151c;
+    --bg-elevated: #1a1e28;
+    --bg-hover: #222838;
+    --border: #2a3040;
+    --border-glow: #3a4a6a;
+    --text-primary: #e8ecf4;
+    --text-secondary: #8892a8;
+    --text-muted: #5a6478;
+    --accent-cyan: #4ecdc4;
+    --accent-cyan-dim: #2a7a74;
+    --accent-orange: #ff8c42;
+    --accent-orange-dim: #8a4a20;
+    --accent-violet: #a78bfa;
+    --accent-violet-dim: #5a4a8a;
+    --accent-rose: #f472b6;
+    --accent-rose-dim: #8a3a5a;
+    --accent-emerald: #34d399;
+    --accent-emerald-dim: #1a6a4a;
+    --accent-amber: #fbbf24;
+    --accent-amber-dim: #8a6a10;
+    --accent-sky: #38bdf8;
+    --fixed-color: #4ecdc4;
+    --mutable-color: #ff8c42;
+    --harness-color: #a78bfa;
+    --vault-color: #34d399;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: var(--bg-deep);
+    color: var(--text-primary);
+    font-family: 'Inter', -apple-system, sans-serif;
+    line-height: 1.6;
+    overflow-x: hidden;
+  }
+
+  /* ── Hero Section ── */
+  .hero {
+    position: relative;
+    padding: 80px 40px 60px;
+    text-align: center;
+    overflow: hidden;
+  }
+
+  .hero::before {
+    content: '';
+    position: absolute;
+    top: -200px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 800px;
+    height: 800px;
+    background: radial-gradient(circle, rgba(78,205,196,0.08) 0%, rgba(167,139,250,0.04) 40%, transparent 70%);
+    pointer-events: none;
+  }
+
+  .hero-badge {
+    display: inline-block;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 3px;
+    text-transform: uppercase;
+    color: var(--accent-cyan);
+    border: 1px solid var(--accent-cyan-dim);
+    padding: 6px 16px;
+    border-radius: 20px;
+    margin-bottom: 24px;
+    background: rgba(78,205,196,0.06);
+  }
+
+  .hero h1 {
+    font-family: 'Playfair Display', serif;
+    font-size: clamp(42px, 6vw, 72px);
+    font-weight: 900;
+    letter-spacing: -1px;
+    background: linear-gradient(135deg, var(--text-primary) 0%, var(--accent-cyan) 50%, var(--accent-violet) 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    margin-bottom: 16px;
+  }
+
+  .hero-subtitle {
+    font-size: 18px;
+    color: var(--text-secondary);
+    max-width: 640px;
+    margin: 0 auto 40px;
+    font-weight: 300;
+  }
+
+  /* ── Three Pillars ── */
+  .pillars {
+    display: flex;
+    justify-content: center;
+    gap: 2px;
+    max-width: 900px;
+    margin: 0 auto;
+  }
+
+  .pillar {
+    flex: 1;
+    padding: 20px 24px;
+    border-radius: 12px;
+    text-align: center;
+    position: relative;
+    transition: transform 0.2s;
+  }
+
+  .pillar:hover { transform: translateY(-2px); }
+
+  .pillar-fixed {
+    background: linear-gradient(135deg, rgba(78,205,196,0.1), rgba(78,205,196,0.03));
+    border: 1px solid rgba(78,205,196,0.2);
+  }
+
+  .pillar-mutable {
+    background: linear-gradient(135deg, rgba(255,140,66,0.1), rgba(255,140,66,0.03));
+    border: 1px solid rgba(255,140,66,0.2);
+  }
+
+  .pillar-harness {
+    background: linear-gradient(135deg, rgba(167,139,250,0.1), rgba(167,139,250,0.03));
+    border: 1px solid rgba(167,139,250,0.2);
+  }
+
+  .pillar-icon {
+    font-size: 28px;
+    margin-bottom: 8px;
+  }
+
+  .pillar h3 {
+    font-size: 14px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    margin-bottom: 4px;
+  }
+
+  .pillar-fixed h3 { color: var(--fixed-color); }
+  .pillar-mutable h3 { color: var(--mutable-color); }
+  .pillar-harness h3 { color: var(--harness-color); }
+
+  .pillar p {
+    font-size: 12px;
+    color: var(--text-secondary);
+    line-height: 1.5;
+  }
+
+  .pillar code {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    background: rgba(255,255,255,0.06);
+    padding: 1px 5px;
+    border-radius: 3px;
+  }
+
+  /* ── Section Layout ── */
+  .container {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 0 40px;
+  }
+
+  section {
+    padding: 60px 0;
+  }
+
+  .section-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 3px;
+    text-transform: uppercase;
+    color: var(--accent-cyan);
+    margin-bottom: 8px;
+  }
+
+  .section-title {
+    font-family: 'Playfair Display', serif;
+    font-size: 36px;
+    font-weight: 800;
+    margin-bottom: 12px;
+  }
+
+  .section-desc {
+    font-size: 15px;
+    color: var(--text-secondary);
+    max-width: 600px;
+    margin-bottom: 40px;
+  }
+
+  .divider {
+    height: 1px;
+    background: linear-gradient(90deg, transparent, var(--border), transparent);
+    margin: 0 40px;
+  }
+
+  /* ── Architecture Layers ── */
+  .arch-layers {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    max-width: 960px;
+    margin: 0 auto;
+  }
+
+  .arch-layer {
+    display: grid;
+    grid-template-columns: 180px 1fr;
+    border-radius: 12px;
+    overflow: hidden;
+    min-height: 80px;
+  }
+
+  .arch-layer-label {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    padding: 16px 20px;
+    font-weight: 700;
+    font-size: 13px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+  }
+
+  .arch-layer-label small {
+    font-size: 10px;
+    font-weight: 400;
+    letter-spacing: 0.5px;
+    text-transform: none;
+    opacity: 0.7;
+    margin-top: 2px;
+  }
+
+  .arch-layer-content {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 16px 20px;
+    align-items: center;
+  }
+
+  .arch-chip {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    padding: 5px 12px;
+    border-radius: 6px;
+    white-space: nowrap;
+  }
+
+  /* Layer: Policy */
+  .layer-policy .arch-layer-label {
+    background: rgba(78,205,196,0.15);
+    color: var(--fixed-color);
+  }
+  .layer-policy .arch-layer-content {
+    background: rgba(78,205,196,0.04);
+    border: 1px solid rgba(78,205,196,0.12);
+    border-left: none;
+  }
+  .layer-policy .arch-chip {
+    background: rgba(78,205,196,0.1);
+    color: var(--fixed-color);
+    border: 1px solid rgba(78,205,196,0.2);
+  }
+
+  /* Layer: Skills */
+  .layer-skills .arch-layer-label {
+    background: rgba(255,140,66,0.15);
+    color: var(--mutable-color);
+  }
+  .layer-skills .arch-layer-content {
+    background: rgba(255,140,66,0.04);
+    border: 1px solid rgba(255,140,66,0.12);
+    border-left: none;
+  }
+  .layer-skills .arch-chip {
+    background: rgba(255,140,66,0.1);
+    color: var(--mutable-color);
+    border: 1px solid rgba(255,140,66,0.2);
+  }
+  .layer-skills .arch-chip.orchestrator {
+    background: rgba(255,140,66,0.2);
+    border-color: rgba(255,140,66,0.4);
+    font-weight: 600;
+  }
+
+  /* Layer: Config */
+  .layer-config .arch-layer-label {
+    background: rgba(52,211,153,0.15);
+    color: var(--vault-color);
+  }
+  .layer-config .arch-layer-content {
+    background: rgba(52,211,153,0.04);
+    border: 1px solid rgba(52,211,153,0.12);
+    border-left: none;
+  }
+  .layer-config .arch-chip {
+    background: rgba(52,211,153,0.1);
+    color: var(--vault-color);
+    border: 1px solid rgba(52,211,153,0.2);
+  }
+
+  /* Layer: Harness */
+  .layer-harness .arch-layer-label {
+    background: rgba(167,139,250,0.15);
+    color: var(--harness-color);
+  }
+  .layer-harness .arch-layer-content {
+    background: rgba(167,139,250,0.04);
+    border: 1px solid rgba(167,139,250,0.12);
+    border-left: none;
+  }
+  .layer-harness .arch-chip {
+    background: rgba(167,139,250,0.1);
+    color: var(--harness-color);
+    border: 1px solid rgba(167,139,250,0.2);
+  }
+
+  /* Layer: Eval */
+  .layer-eval .arch-layer-label {
+    background: rgba(244,114,182,0.15);
+    color: var(--accent-rose);
+  }
+  .layer-eval .arch-layer-content {
+    background: rgba(244,114,182,0.04);
+    border: 1px solid rgba(244,114,182,0.12);
+    border-left: none;
+  }
+  .layer-eval .arch-chip {
+    background: rgba(244,114,182,0.1);
+    color: var(--accent-rose);
+    border: 1px solid rgba(244,114,182,0.2);
+  }
+
+  /* ── Flow Diagrams ── */
+  .flows-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 32px;
+  }
+
+  @media (max-width: 900px) {
+    .flows-grid { grid-template-columns: 1fr; }
+  }
+
+  .flow-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 32px;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .flow-card::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 3px;
+  }
+
+  .flow-ingest::before {
+    background: linear-gradient(90deg, var(--accent-cyan), var(--accent-emerald));
+  }
+
+  .flow-update::before {
+    background: linear-gradient(90deg, var(--accent-orange), var(--accent-rose));
+  }
+
+  .flow-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 6px;
+  }
+
+  .flow-icon {
+    width: 40px;
+    height: 40px;
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 20px;
+    flex-shrink: 0;
+  }
+
+  .flow-ingest .flow-icon {
+    background: rgba(78,205,196,0.15);
+    border: 1px solid rgba(78,205,196,0.3);
+  }
+
+  .flow-update .flow-icon {
+    background: rgba(255,140,66,0.15);
+    border: 1px solid rgba(255,140,66,0.3);
+  }
+
+  .flow-card h3 {
+    font-size: 20px;
+    font-weight: 700;
+  }
+
+  .flow-trigger {
+    font-size: 12px;
+    color: var(--text-muted);
+    margin-bottom: 24px;
+    font-style: italic;
+  }
+
+  .flow-steps {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+  }
+
+  .flow-step {
+    display: flex;
+    align-items: flex-start;
+    gap: 14px;
+    position: relative;
+    padding-bottom: 16px;
+  }
+
+  .flow-step:last-child { padding-bottom: 0; }
+
+  .flow-step::before {
+    content: '';
+    position: absolute;
+    left: 15px;
+    top: 32px;
+    bottom: 0;
+    width: 2px;
+    background: var(--border);
+  }
+
+  .flow-step:last-child::before { display: none; }
+
+  .step-dot {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 13px;
+    font-weight: 700;
+    flex-shrink: 0;
+    position: relative;
+    z-index: 1;
+    font-family: 'JetBrains Mono', monospace;
+  }
+
+  .flow-ingest .step-dot {
+    background: rgba(78,205,196,0.15);
+    color: var(--accent-cyan);
+    border: 2px solid rgba(78,205,196,0.3);
+  }
+
+  .flow-update .step-dot {
+    background: rgba(255,140,66,0.15);
+    color: var(--accent-orange);
+    border: 2px solid rgba(255,140,66,0.3);
+  }
+
+  .step-content {
+    padding-top: 4px;
+  }
+
+  .step-skill {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    font-weight: 600;
+    margin-bottom: 2px;
+  }
+
+  .flow-ingest .step-skill { color: var(--accent-cyan); }
+  .flow-update .step-skill { color: var(--accent-orange); }
+
+  .step-desc {
+    font-size: 13px;
+    color: var(--text-secondary);
+    line-height: 1.4;
+  }
+
+  /* ── Vault Structure ── */
+  .vault-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 32px;
+    align-items: start;
+  }
+
+  @media (max-width: 900px) {
+    .vault-grid { grid-template-columns: 1fr; }
+  }
+
+  .vault-tree {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 32px;
+  }
+
+  .vault-tree h3 {
+    font-size: 16px;
+    font-weight: 700;
+    margin-bottom: 20px;
+    color: var(--vault-color);
+  }
+
+  .tree-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 6px 0;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+  }
+
+  .tree-item.indent-1 { padding-left: 20px; }
+  .tree-item.indent-2 { padding-left: 40px; }
+
+  .tree-icon {
+    font-size: 14px;
+    width: 20px;
+    text-align: center;
+  }
+
+  .tree-name { color: var(--text-primary); }
+  .tree-note {
+    font-size: 11px;
+    color: var(--text-muted);
+    margin-left: auto;
+  }
+
+  .note-anatomy {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 32px;
+  }
+
+  .note-anatomy h3 {
+    font-size: 16px;
+    font-weight: 700;
+    margin-bottom: 20px;
+    color: var(--accent-violet);
+  }
+
+  .note-block {
+    background: var(--bg-elevated);
+    border-radius: 8px;
+    padding: 16px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    line-height: 1.8;
+    border: 1px solid var(--border);
+    overflow-x: auto;
+  }
+
+  .note-block .fm { color: var(--text-muted); }
+  .note-block .key { color: var(--accent-cyan); }
+  .note-block .val { color: var(--accent-orange); }
+  .note-block .heading { color: var(--accent-violet); font-weight: 700; }
+  .note-block .claim { color: var(--text-secondary); }
+  .note-block .src { color: var(--accent-emerald); }
+  .note-block .link { color: var(--accent-sky); }
+  .note-block .conf { color: var(--accent-amber); }
+
+  /* ── Properties Grid ── */
+  .props-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+    gap: 16px;
+  }
+
+  .prop-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 20px;
+    transition: border-color 0.2s;
+  }
+
+  .prop-card:hover { border-color: var(--border-glow); }
+
+  .prop-icon {
+    font-size: 20px;
+    margin-bottom: 10px;
+  }
+
+  .prop-card h4 {
+    font-size: 14px;
+    font-weight: 700;
+    margin-bottom: 6px;
+  }
+
+  .prop-card p {
+    font-size: 12px;
+    color: var(--text-secondary);
+    line-height: 1.5;
+  }
+
+  /* ── CLI Usage ── */
+  .cli-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+    gap: 16px;
+  }
+
+  .cli-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 20px;
+  }
+
+  .cli-card h4 {
+    font-size: 14px;
+    font-weight: 600;
+    margin-bottom: 4px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .cli-card h4 span {
+    font-size: 14px;
+  }
+
+  .cli-desc {
+    font-size: 12px;
+    color: var(--text-muted);
+    margin-bottom: 10px;
+  }
+
+  .cli-cmd {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 10px 14px;
+    color: var(--accent-emerald);
+    line-height: 1.6;
+    overflow-x: auto;
+    white-space: pre;
+  }
+
+  .cli-cmd .flag { color: var(--accent-cyan); }
+  .cli-cmd .path { color: var(--accent-orange); }
+  .cli-cmd .comment { color: var(--text-muted); }
+
+  /* ── Metrics Panel ── */
+  .metrics-split {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 32px;
+  }
+
+  @media (max-width: 900px) {
+    .metrics-split { grid-template-columns: 1fr; }
+  }
+
+  .metrics-panel {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 28px;
+  }
+
+  .metrics-panel h3 {
+    font-size: 15px;
+    font-weight: 700;
+    margin-bottom: 16px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .metric-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 0;
+    border-bottom: 1px solid rgba(255,255,255,0.04);
+  }
+
+  .metric-row:last-child { border-bottom: none; }
+
+  .metric-name {
+    font-size: 13px;
+    color: var(--text-secondary);
+  }
+
+  .metric-badge {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    padding: 3px 10px;
+    border-radius: 4px;
+  }
+
+  .badge-hard {
+    background: rgba(244,114,182,0.12);
+    color: var(--accent-rose);
+    border: 1px solid rgba(244,114,182,0.25);
+  }
+
+  .badge-soft {
+    background: rgba(56,189,248,0.12);
+    color: var(--accent-sky);
+    border: 1px solid rgba(56,189,248,0.25);
+  }
+
+  /* ── Repo Layout ── */
+  .repo-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 12px;
+  }
+
+  .repo-item {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 16px;
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+  }
+
+  .repo-item-icon {
+    font-size: 20px;
+    flex-shrink: 0;
+    margin-top: 2px;
+  }
+
+  .repo-item-name {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+    font-weight: 600;
+    margin-bottom: 3px;
+  }
+
+  .repo-item-desc {
+    font-size: 11px;
+    color: var(--text-muted);
+    line-height: 1.4;
+  }
+
+  /* ── Acceptance Criteria ── */
+  .criteria-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 32px;
+    max-width: 700px;
+    margin: 0 auto;
+  }
+
+  .criteria-card h3 {
+    font-size: 16px;
+    font-weight: 700;
+    margin-bottom: 20px;
+    text-align: center;
+    color: var(--accent-amber);
+  }
+
+  .criteria-list {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px 24px;
+  }
+
+  .criteria-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    padding: 6px 0;
+  }
+
+  .criteria-check {
+    color: var(--accent-emerald);
+    font-weight: 700;
+    font-size: 14px;
+  }
+
+  .criteria-text {
+    color: var(--text-secondary);
+  }
+
+  .criteria-val {
+    font-family: 'JetBrains Mono', monospace;
+    color: var(--accent-amber);
+    font-size: 12px;
+  }
+
+  /* ── Footer ── */
+  .footer {
+    text-align: center;
+    padding: 40px;
+    color: var(--text-muted);
+    font-size: 12px;
+    border-top: 1px solid var(--border);
+    margin-top: 40px;
+  }
+
+  .footer a {
+    color: var(--accent-cyan);
+    text-decoration: none;
+  }
+
+  /* ── Animations ── */
+  @keyframes fadeInUp {
+    from { opacity: 0; transform: translateY(20px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  .animate-in {
+    animation: fadeInUp 0.5s ease-out both;
+  }
+
+  .delay-1 { animation-delay: 0.1s; }
+  .delay-2 { animation-delay: 0.2s; }
+  .delay-3 { animation-delay: 0.3s; }
+  .delay-4 { animation-delay: 0.4s; }
+
+  @keyframes pulse-glow {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(78,205,196,0); }
+    50% { box-shadow: 0 0 12px 2px rgba(78,205,196,0.15); }
+  }
+
+  .flow-step:first-child .step-dot {
+    animation: pulse-glow 3s infinite;
+  }
+
+  /* ── Legend Bar ── */
+  .legend {
+    display: flex;
+    justify-content: center;
+    gap: 24px;
+    padding: 16px 0;
+    flex-wrap: wrap;
+  }
+
+  .legend-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    color: var(--text-secondary);
+  }
+
+  .legend-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 3px;
+  }
+
+  .legend-dot.fixed { background: var(--fixed-color); }
+  .legend-dot.mutable { background: var(--mutable-color); }
+  .legend-dot.harness { background: var(--harness-color); }
+  .legend-dot.vault { background: var(--vault-color); }
+  .legend-dot.eval { background: var(--accent-rose); }
+</style>
+</head>
+<body>
+
+<!-- ════════════════════ HERO ════════════════════ -->
+<header class="hero">
+  <div class="hero-badge animate-in">Self-Improving Memory System</div>
+  <h1 class="animate-in delay-1">AutoKnowledge</h1>
+  <p class="hero-subtitle animate-in delay-2">
+    A portable skill pack for autonomous knowledge extraction into Obsidian-style vaults,
+    with bounded self-improvement through evaluation-driven learning loops.
+  </p>
+
+  <div class="pillars animate-in delay-3">
+    <div class="pillar pillar-fixed">
+      <div class="pillar-icon">&#x1f512;</div>
+      <h3>Fixed Policy</h3>
+      <p><code>agents.md</code><br>Immutable invariants &amp; operating rules</p>
+    </div>
+    <div class="pillar pillar-mutable">
+      <div class="pillar-icon">&#x1f9e0;</div>
+      <h3>Mutable Skills</h3>
+      <p><code>skills/</code><br>Prompt-based behaviors the system self-improves</p>
+    </div>
+    <div class="pillar pillar-harness">
+      <div class="pillar-icon">&#x2699;&#xfe0f;</div>
+      <h3>Thin Harness</h3>
+      <p><code>autoknowledge/</code><br>Fixed measurement: indexing, diffing, scoring</p>
+    </div>
+  </div>
+</header>
+
+<div class="divider"></div>
+
+<!-- ════════════════════ ARCHITECTURE LAYERS ════════════════════ -->
+<section>
+  <div class="container">
+    <div class="section-label">System Architecture</div>
+    <h2 class="section-title">Layered Design</h2>
+    <p class="section-desc">
+      The self-improving surface is intentionally narrow. Only skills can change; the policy and harness remain fixed.
+    </p>
+
+    <div class="legend">
+      <div class="legend-item"><div class="legend-dot fixed"></div> Fixed (immutable)</div>
+      <div class="legend-item"><div class="legend-dot mutable"></div> Mutable (self-improving)</div>
+      <div class="legend-item"><div class="legend-dot harness"></div> Harness (deterministic)</div>
+      <div class="legend-item"><div class="legend-dot vault"></div> Contract (slow-changing)</div>
+      <div class="legend-item"><div class="legend-dot eval"></div> Evaluation</div>
+    </div>
+
+    <div class="arch-layers">
+      <div class="arch-layer layer-policy">
+        <div class="arch-layer-label">
+          Policy
+          <small>Never auto-edited</small>
+        </div>
+        <div class="arch-layer-content">
+          <span class="arch-chip">agents.md</span>
+          <span class="arch-chip">Global Invariants</span>
+          <span class="arch-chip">Operating Modes</span>
+          <span class="arch-chip">Decision Policy</span>
+          <span class="arch-chip">Mutable Surface Boundaries</span>
+        </div>
+      </div>
+
+      <div class="arch-layer layer-skills">
+        <div class="arch-layer-label">
+          Skills
+          <small>Self-improving surface</small>
+        </div>
+        <div class="arch-layer-content">
+          <span class="arch-chip orchestrator">ingest-knowledge</span>
+          <span class="arch-chip">ingest-source</span>
+          <span class="arch-chip">extract-knowledge</span>
+          <span class="arch-chip">resolve-identity</span>
+          <span class="arch-chip">update-vault</span>
+          <span class="arch-chip">repair-graph</span>
+          <span class="arch-chip">evaluate-graph</span>
+          <span class="arch-chip">extend-evaluation</span>
+          <span class="arch-chip">propose-skill-change</span>
+          <span class="arch-chip">self-update-knowledge</span>
+        </div>
+      </div>
+
+      <div class="arch-layer layer-config">
+        <div class="arch-layer-label">
+          Vault Contract
+          <small>Slow-changing config</small>
+        </div>
+        <div class="arch-layer-content">
+          <span class="arch-chip">vault_schema.md</span>
+          <span class="arch-chip">vault_layout.md</span>
+          <span class="arch-chip">extraction_contract.md</span>
+          <span class="arch-chip">merge_policy.md</span>
+          <span class="arch-chip">evidence_conventions.md</span>
+          <span class="arch-chip">model_profiles.json</span>
+          <span class="arch-chip">runtime.json</span>
+          <span class="arch-chip">self_update.json</span>
+        </div>
+      </div>
+
+      <div class="arch-layer layer-harness">
+        <div class="arch-layer-label">
+          Python Harness
+          <small>Deterministic code</small>
+        </div>
+        <div class="arch-layer-content">
+          <span class="arch-chip">indexer</span>
+          <span class="arch-chip">ingest</span>
+          <span class="arch-chip">providers</span>
+          <span class="arch-chip">integrity</span>
+          <span class="arch-chip">metrics</span>
+          <span class="arch-chip">diffing</span>
+          <span class="arch-chip">contracts</span>
+          <span class="arch-chip">retrieval_qa</span>
+          <span class="arch-chip">self_update</span>
+          <span class="arch-chip">ledger</span>
+        </div>
+      </div>
+
+      <div class="arch-layer layer-eval">
+        <div class="arch-layer-label">
+          Evaluation
+          <small>Benchmark suites</small>
+        </div>
+        <div class="arch-layer-content">
+          <span class="arch-chip">frozen/</span>
+          <span class="arch-chip">metamorphic/</span>
+          <span class="arch-chip">retrieval/</span>
+          <span class="arch-chip">artifacts/</span>
+          <span class="arch-chip">state/ledger.jsonl</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<!-- ════════════════════ CORE LOOPS ════════════════════ -->
+<section>
+  <div class="container">
+    <div class="section-label">Core Loops</div>
+    <h2 class="section-title">Two Operational Cycles</h2>
+    <p class="section-desc">
+      Ingestion handles new material. Self-update improves extraction behavior through bounded experimentation.
+    </p>
+
+    <div class="flows-grid">
+      <!-- Ingest Loop -->
+      <div class="flow-card flow-ingest">
+        <div class="flow-header">
+          <div class="flow-icon">&#x1f4e5;</div>
+          <h3>Ingest Loop</h3>
+        </div>
+        <p class="flow-trigger">Triggered when new material arrives (file, conversation, batch)</p>
+
+        <div class="flow-steps">
+          <div class="flow-step">
+            <div class="step-dot">1</div>
+            <div class="step-content">
+              <div class="step-skill">ingest-source</div>
+              <div class="step-desc">Normalize input, create source note with evidence blocks (anchored text chunks)</div>
+            </div>
+          </div>
+          <div class="flow-step">
+            <div class="step-dot">2</div>
+            <div class="step-content">
+              <div class="step-skill">extract-knowledge</div>
+              <div class="step-desc">Extract candidate entities, concepts, claims, and relationships from evidence</div>
+            </div>
+          </div>
+          <div class="flow-step">
+            <div class="step-dot">3</div>
+            <div class="step-content">
+              <div class="step-skill">resolve-identity</div>
+              <div class="step-desc">Match candidates against existing vault notes by title, alias, and slug</div>
+            </div>
+          </div>
+          <div class="flow-step">
+            <div class="step-dot">4</div>
+            <div class="step-content">
+              <div class="step-skill">update-vault</div>
+              <div class="step-desc">Apply minimal patches &mdash; append sourced claims, add relationships, create new notes</div>
+            </div>
+          </div>
+          <div class="flow-step">
+            <div class="step-dot">5</div>
+            <div class="step-content">
+              <div class="step-skill">repair-graph</div>
+              <div class="step-desc">Fix duplicates, orphans, broken wiki-links without changing source meaning</div>
+            </div>
+          </div>
+          <div class="flow-step">
+            <div class="step-dot">6</div>
+            <div class="step-content">
+              <div class="step-skill">evaluate-graph</div>
+              <div class="step-desc">Score vault quality: hard constraint checks + soft metric calculations</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Self-Update Loop -->
+      <div class="flow-card flow-update">
+        <div class="flow-header">
+          <div class="flow-icon">&#x1f504;</div>
+          <h3>Self-Update Loop</h3>
+        </div>
+        <p class="flow-trigger">Scheduled daily &mdash; bounded autonomous improvement cycle</p>
+
+        <div class="flow-steps">
+          <div class="flow-step">
+            <div class="step-dot">1</div>
+            <div class="step-content">
+              <div class="step-skill">evaluate-graph</div>
+              <div class="step-desc">Run baseline on frozen + metamorphic + retrieval benchmark suites</div>
+            </div>
+          </div>
+          <div class="flow-step">
+            <div class="step-dot">2</div>
+            <div class="step-content">
+              <div class="step-skill">cluster failures</div>
+              <div class="step-desc">Group failure patterns from benchmark results and threshold warnings</div>
+            </div>
+          </div>
+          <div class="flow-step">
+            <div class="step-dot">3</div>
+            <div class="step-content">
+              <div class="step-skill">propose-skill-change</div>
+              <div class="step-desc">Generate one hypothesis targeting one skill file, with expected improvement</div>
+            </div>
+          </div>
+          <div class="flow-step">
+            <div class="step-dot">4</div>
+            <div class="step-content">
+              <div class="step-skill">isolated evaluation</div>
+              <div class="step-desc">Apply candidate in copied workspace, re-run all benchmarks</div>
+            </div>
+          </div>
+          <div class="flow-step">
+            <div class="step-dot">5</div>
+            <div class="step-content">
+              <div class="step-skill">accept / reject</div>
+              <div class="step-desc">Compare baseline vs. candidate against acceptance criteria</div>
+            </div>
+          </div>
+          <div class="flow-step">
+            <div class="step-dot">6</div>
+            <div class="step-content">
+              <div class="step-skill">record outcome</div>
+              <div class="step-desc">Write artifacts, update pitfalls.md, append to ledger.jsonl</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<!-- ════════════════════ VAULT STRUCTURE ════════════════════ -->
+<section>
+  <div class="container">
+    <div class="section-label">Knowledge Store</div>
+    <h2 class="section-title">Obsidian Vault Anatomy</h2>
+    <p class="section-desc">
+      Markdown notes connected with wiki-links. Source-grounded, incrementally updated, low churn.
+    </p>
+
+    <div class="vault-grid">
+      <div class="vault-tree">
+        <h3>&#x1f4c1; Directory Structure</h3>
+        <div class="tree-item">
+          <span class="tree-icon">&#x1f4c2;</span>
+          <span class="tree-name">vault/</span>
+        </div>
+        <div class="tree-item indent-1">
+          <span class="tree-icon">&#x1f4c4;</span>
+          <span class="tree-name">sources/files/YYYY/</span>
+          <span class="tree-note">raw, append-only</span>
+        </div>
+        <div class="tree-item indent-1">
+          <span class="tree-icon">&#x1f4ac;</span>
+          <span class="tree-name">sources/conversations/YYYY/</span>
+          <span class="tree-note">chat logs</span>
+        </div>
+        <div class="tree-item indent-1">
+          <span class="tree-icon">&#x1f464;</span>
+          <span class="tree-name">entities/</span>
+          <span class="tree-note">people, orgs, tools</span>
+        </div>
+        <div class="tree-item indent-1">
+          <span class="tree-icon">&#x1f4a1;</span>
+          <span class="tree-name">concepts/</span>
+          <span class="tree-note">ideas, patterns</span>
+        </div>
+        <div class="tree-item indent-1">
+          <span class="tree-icon">&#x1f3f7;&#xfe0f;</span>
+          <span class="tree-name">topics/</span>
+          <span class="tree-note">broad themes</span>
+        </div>
+        <div class="tree-item indent-1">
+          <span class="tree-icon">&#x2753;</span>
+          <span class="tree-name">inbox/unresolved/</span>
+          <span class="tree-note">low-confidence</span>
+        </div>
+      </div>
+
+      <div class="note-anatomy">
+        <h3>&#x1f4dd; Canonical Note Format</h3>
+        <div class="note-block">
+<span class="fm">---</span>
+<span class="key">id</span>: <span class="val">"ent_copilot"</span>
+<span class="key">type</span>: <span class="val">"entity"</span>
+<span class="key">title</span>: <span class="val">"GitHub Copilot"</span>
+<span class="key">aliases</span>: <span class="val">["copilot", "gh-copilot"]</span>
+<span class="key">source_refs</span>: <span class="val">["sources/files/2026/..."]</span>
+<span class="key">managed_by</span>: <span class="val">"autoknowledge"</span>
+<span class="fm">---</span>
+
+<span class="heading"># GitHub Copilot</span>
+
+<span class="heading">## Claims</span>
+<span class="claim">- AI pair programmer by GitHub.</span>
+  <span class="src">Source: [[sources/files/2026/...#^e0001]]</span>
+  <span class="conf">Confidence: high</span>
+
+<span class="heading">## Relationships</span>
+<span class="claim">- developed_by -&gt;</span> <span class="link">[[github]]</span>
+  <span class="src">Source: [[sources/files/2026/...#^e0002]]</span>
+
+<span class="heading">## Contradictions</span>
+<span class="claim">- (explicit when claims conflict)</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<!-- ════════════════════ KEY PROPERTIES ════════════════════ -->
+<section>
+  <div class="container">
+    <div class="section-label">Design Principles</div>
+    <h2 class="section-title">Safety Properties</h2>
+    <p class="section-desc">
+      Every design decision constrains what the system can do, not what it can learn.
+    </p>
+
+    <div class="props-grid">
+      <div class="prop-card">
+        <div class="prop-icon">&#x1f4ce;</div>
+        <h4>Source-Grounded</h4>
+        <p>Every factual claim must cite a specific source block anchor. No provenance, no entry.</p>
+      </div>
+      <div class="prop-card">
+        <div class="prop-icon">&#x1f6e1;&#xfe0f;</div>
+        <h4>Dry-Run Default</h4>
+        <p>All ingestion is preview-only by default. Explicit <code>--apply</code> required to write to the vault.</p>
+      </div>
+      <div class="prop-card">
+        <div class="prop-icon">&#x267b;&#xfe0f;</div>
+        <h4>Idempotent</h4>
+        <p>Re-ingesting the same source produces a no-op plan. Identity is snapped by title, alias, and slug.</p>
+      </div>
+      <div class="prop-card">
+        <div class="prop-icon">&#x1f91d;</div>
+        <h4>Conservative Merging</h4>
+        <p>A false merge is worse than a missed merge. Low-confidence cases go to unresolved inbox.</p>
+      </div>
+      <div class="prop-card">
+        <div class="prop-icon">&#x1f512;</div>
+        <h4>Bounded Self-Update</h4>
+        <p>Only <code>skills/*.md</code> files can change. Hard constraints can never be relaxed during auto-update.</p>
+      </div>
+      <div class="prop-card">
+        <div class="prop-icon">&#x1f310;</div>
+        <h4>Multi-Backend</h4>
+        <p>Deterministic (zero-dep), OpenAI, and Anthropic extractors &mdash; all profile-driven and benchmarkable.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<!-- ════════════════════ EVALUATION METRICS ════════════════════ -->
+<section>
+  <div class="container">
+    <div class="section-label">Quality Signals</div>
+    <h2 class="section-title">Evaluation Framework</h2>
+    <p class="section-desc">
+      Hard constraints gate acceptance. Soft metrics guide improvement direction.
+    </p>
+
+    <div class="metrics-split">
+      <div class="metrics-panel">
+        <h3><span style="color:var(--accent-rose)">&#x25cf;</span> Hard Constraints (must pass)</h3>
+        <div class="metric-row">
+          <span class="metric-name">Source coverage for all claims</span>
+          <span class="metric-badge badge-hard">GATE</span>
+        </div>
+        <div class="metric-row">
+          <span class="metric-name">Graph parseability</span>
+          <span class="metric-badge badge-hard">GATE</span>
+        </div>
+        <div class="metric-row">
+          <span class="metric-name">Idempotent re-ingestion</span>
+          <span class="metric-badge badge-hard">GATE</span>
+        </div>
+        <div class="metric-row">
+          <span class="metric-name">No silent contradiction flattening</span>
+          <span class="metric-badge badge-hard">GATE</span>
+        </div>
+        <div class="metric-row">
+          <span class="metric-name">No unsupported destructive edits</span>
+          <span class="metric-badge badge-hard">GATE</span>
+        </div>
+      </div>
+
+      <div class="metrics-panel">
+        <h3><span style="color:var(--accent-sky)">&#x25cf;</span> Soft Metrics (guide direction)</h3>
+        <div class="metric-row">
+          <span class="metric-name">citation_coverage</span>
+          <span class="metric-badge badge-soft">TRACK</span>
+        </div>
+        <div class="metric-row">
+          <span class="metric-name">duplicate_note_rate</span>
+          <span class="metric-badge badge-soft">TRACK</span>
+        </div>
+        <div class="metric-row">
+          <span class="metric-name">orphan_note_rate</span>
+          <span class="metric-badge badge-soft">TRACK</span>
+        </div>
+        <div class="metric-row">
+          <span class="metric-name">isolated_note_rate</span>
+          <span class="metric-badge badge-soft">TRACK</span>
+        </div>
+        <div class="metric-row">
+          <span class="metric-name">canonical_link_density</span>
+          <span class="metric-badge badge-soft">TRACK</span>
+        </div>
+        <div class="metric-row">
+          <span class="metric-name">graph_churn</span>
+          <span class="metric-badge badge-soft">TRACK</span>
+        </div>
+        <div class="metric-row">
+          <span class="metric-name">retrieval_pass_rate</span>
+          <span class="metric-badge badge-soft">TRACK</span>
+        </div>
+      </div>
+    </div>
+
+    <div style="height:32px"></div>
+
+    <div class="criteria-card">
+      <h3>&#x2696;&#xfe0f; Self-Update Acceptance Criteria</h3>
+      <div class="criteria-list">
+        <div class="criteria-item">
+          <span class="criteria-check">&#x2713;</span>
+          <span class="criteria-text">No new benchmark failures</span>
+          <span class="criteria-val">&le; 0</span>
+        </div>
+        <div class="criteria-item">
+          <span class="criteria-check">&#x2713;</span>
+          <span class="criteria-text">No new hard constraint issues</span>
+          <span class="criteria-val">&le; 0</span>
+        </div>
+        <div class="criteria-item">
+          <span class="criteria-check">&#x2713;</span>
+          <span class="criteria-text">Duplicate rate regression</span>
+          <span class="criteria-val">&le; 2%</span>
+        </div>
+        <div class="criteria-item">
+          <span class="criteria-check">&#x2713;</span>
+          <span class="criteria-text">Isolated note rate regression</span>
+          <span class="criteria-val">&le; 3%</span>
+        </div>
+        <div class="criteria-item">
+          <span class="criteria-check">&#x2713;</span>
+          <span class="criteria-text">Graph churn regression</span>
+          <span class="criteria-val">&le; 3%</span>
+        </div>
+        <div class="criteria-item">
+          <span class="criteria-check">&#x2713;</span>
+          <span class="criteria-text">Retrieval QA regression</span>
+          <span class="criteria-val">&le; 3%</span>
+        </div>
+        <div class="criteria-item">
+          <span class="criteria-check">&#x2713;</span>
+          <span class="criteria-text">Minimum score improvement</span>
+          <span class="criteria-val">&ge; 1%</span>
+        </div>
+        <div class="criteria-item">
+          <span class="criteria-check">&#x2713;</span>
+          <span class="criteria-text">Primary failure must improve</span>
+          <span class="criteria-val">&ge; 1%</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<!-- ════════════════════ EVERYDAY CLI USAGE ════════════════════ -->
+<section>
+  <div class="container">
+    <div class="section-label">Quick Reference</div>
+    <h2 class="section-title">Everyday Usage</h2>
+    <p class="section-desc">
+      All commands are thin, deterministic wrappers. Dry-run by default, explicit apply.
+    </p>
+
+    <div class="cli-grid">
+      <div class="cli-card">
+        <h4><span>&#x1f4e5;</span> Ingest a File</h4>
+        <p class="cli-desc">Preview extraction plan, then apply to write</p>
+        <div class="cli-cmd"><span class="comment"># dry-run (preview plan)</span>
+python3 main.py ingest-file \
+  <span class="flag">--vault</span> <span class="path">/path/to/vault</span> \
+  <span class="flag">--input</span> <span class="path">doc.md</span>
+
+<span class="comment"># apply to vault</span>
+python3 main.py ingest-file \
+  <span class="flag">--vault</span> <span class="path">/path/to/vault</span> \
+  <span class="flag">--input</span> <span class="path">doc.md</span> <span class="flag">--apply</span></div>
+      </div>
+
+      <div class="cli-card">
+        <h4><span>&#x1f4ac;</span> Ingest a Conversation</h4>
+        <p class="cli-desc">Extract knowledge from chat logs</p>
+        <div class="cli-cmd">python3 main.py ingest-conversation \
+  <span class="flag">--vault</span> <span class="path">/path/to/vault</span> \
+  <span class="flag">--input</span> <span class="path">chat.txt</span> <span class="flag">--apply</span></div>
+      </div>
+
+      <div class="cli-card">
+        <h4><span>&#x1f4da;</span> Batch Ingest</h4>
+        <p class="cli-desc">Process a directory of files at once</p>
+        <div class="cli-cmd">python3 main.py ingest-batch-files \
+  <span class="flag">--vault</span> <span class="path">/path/to/vault</span> \
+  <span class="flag">--input-dir</span> <span class="path">files/</span> \
+  <span class="flag">--profile</span> <span class="path">openai_primary</span></div>
+      </div>
+
+      <div class="cli-card">
+        <h4><span>&#x1fa7a;</span> Check Vault Health</h4>
+        <p class="cli-desc">Run integrity checks and compute quality metrics</p>
+        <div class="cli-cmd">python3 main.py check <span class="flag">--vault</span> <span class="path">/path/to/vault</span>
+python3 main.py metrics <span class="flag">--vault</span> <span class="path">/path/to/vault</span></div>
+      </div>
+
+      <div class="cli-card">
+        <h4><span>&#x1f9ea;</span> Run Benchmarks</h4>
+        <p class="cli-desc">Execute frozen, metamorphic, or retrieval test suites</p>
+        <div class="cli-cmd">python3 main.py benchmark-run \
+  <span class="flag">--manifest</span> <span class="path">benchmarks/frozen/manifest.json</span>
+python3 main.py benchmark-run \
+  <span class="flag">--manifest</span> <span class="path">benchmarks/metamorphic/manifest.json</span></div>
+      </div>
+
+      <div class="cli-card">
+        <h4><span>&#x1f504;</span> Self-Update Cycle</h4>
+        <p class="cli-desc">Run one bounded improvement cycle</p>
+        <div class="cli-cmd">python3 main.py self-update-run \
+  <span class="flag">--proposal-profile</span> <span class="path">openai_primary</span> \
+  <span class="flag">--benchmark-profile</span> <span class="path">openai_primary</span>
+
+<span class="comment"># auto-apply if accepted</span>
+python3 main.py self-update-run \
+  <span class="flag">--proposal-profile</span> <span class="path">openai_primary</span> \
+  <span class="flag">--benchmark-profile</span> <span class="path">openai_primary</span> \
+  <span class="flag">--apply-accepted</span></div>
+      </div>
+
+      <div class="cli-card">
+        <h4><span>&#x1f50d;</span> Retrieval QA</h4>
+        <p class="cli-desc">Test source-grounded question answering</p>
+        <div class="cli-cmd">python3 main.py qa-run \
+  <span class="flag">--vault</span> <span class="path">/path/to/vault</span> \
+  <span class="flag">--questions</span> <span class="path">benchmarks/retrieval/questions.json</span></div>
+      </div>
+
+      <div class="cli-card">
+        <h4><span>&#x1f4cb;</span> Inspect History</h4>
+        <p class="cli-desc">View recent run records from the ledger</p>
+        <div class="cli-cmd">python3 main.py ledger tail <span class="flag">--limit</span> <span class="path">5</span>
+python3 main.py diff \
+  <span class="flag">--before</span> <span class="path">snap_a.json</span> \
+  <span class="flag">--after</span> <span class="path">snap_b.json</span></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<!-- ════════════════════ REPO LAYOUT ════════════════════ -->
+<section>
+  <div class="container">
+    <div class="section-label">Repository</div>
+    <h2 class="section-title">Project Layout</h2>
+    <p class="section-desc">
+      Each directory has a clear role. The separation keeps evaluation honest and the mutable surface narrow.
+    </p>
+
+    <div class="repo-grid">
+      <div class="repo-item">
+        <div class="repo-item-icon" style="color:var(--fixed-color)">&#x1f4dc;</div>
+        <div>
+          <div class="repo-item-name" style="color:var(--fixed-color)">agents.md</div>
+          <div class="repo-item-desc">Fixed operating policy, routing rules, invariants, self-update boundaries</div>
+        </div>
+      </div>
+      <div class="repo-item">
+        <div class="repo-item-icon" style="color:var(--mutable-color)">&#x1f9e0;</div>
+        <div>
+          <div class="repo-item-name" style="color:var(--mutable-color)">skills/</div>
+          <div class="repo-item-desc">11 mutable SKILL.md files &mdash; the main self-improving surface</div>
+        </div>
+      </div>
+      <div class="repo-item">
+        <div class="repo-item-icon" style="color:var(--vault-color)">&#x2699;&#xfe0f;</div>
+        <div>
+          <div class="repo-item-name" style="color:var(--vault-color)">config/</div>
+          <div class="repo-item-desc">Vault contract, eval metrics, model profiles, runtime config</div>
+        </div>
+      </div>
+      <div class="repo-item">
+        <div class="repo-item-icon" style="color:var(--accent-rose)">&#x1f9ea;</div>
+        <div>
+          <div class="repo-item-name" style="color:var(--accent-rose)">benchmarks/</div>
+          <div class="repo-item-desc">Frozen, metamorphic, and retrieval test suites with manifests</div>
+        </div>
+      </div>
+      <div class="repo-item">
+        <div class="repo-item-icon" style="color:var(--accent-amber)">&#x1f4e6;</div>
+        <div>
+          <div class="repo-item-name" style="color:var(--accent-amber)">artifacts/</div>
+          <div class="repo-item-desc">Experiment reports, self-update records, evaluation runs</div>
+        </div>
+      </div>
+      <div class="repo-item">
+        <div class="repo-item-icon" style="color:var(--accent-sky)">&#x1f4be;</div>
+        <div>
+          <div class="repo-item-name" style="color:var(--accent-sky)">state/</div>
+          <div class="repo-item-desc">Run ledger (JSONL), scheduling state, benchmark manifests</div>
+        </div>
+      </div>
+      <div class="repo-item">
+        <div class="repo-item-icon" style="color:var(--harness-color)">&#x1f40d;</div>
+        <div>
+          <div class="repo-item-name" style="color:var(--harness-color)">autoknowledge/</div>
+          <div class="repo-item-desc">Python harness: indexer, ingest, providers, metrics, integrity, etc.</div>
+        </div>
+      </div>
+      <div class="repo-item">
+        <div class="repo-item-icon" style="color:var(--harness-color)">&#x1f4df;</div>
+        <div>
+          <div class="repo-item-name" style="color:var(--harness-color)">main.py</div>
+          <div class="repo-item-desc">CLI entry point &mdash; thin argparse wrapper over the harness modules</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<footer class="footer">
+  AutoKnowledge Architecture Diagram &mdash; Generated 2026-03-22<br>
+  <span style="color:var(--text-muted)">Self-improving knowledge extraction for Obsidian vaults</span>
+</footer>
+
+</body>
+</html>

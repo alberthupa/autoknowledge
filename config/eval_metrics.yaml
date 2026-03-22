@@ -1,0 +1,52 @@
+hard_constraints:
+  require_source_refs: true
+  require_parseable_markdown: true
+  require_idempotent_reingestion: true
+  forbid_unsupported_destructive_edits: true
+  forbid_silent_contradiction_flattening: true
+
+soft_metrics:
+  citation_coverage:
+    weight: 1.0
+    target: maximize
+  unsupported_claim_rate:
+    weight: 1.0
+    target: minimize
+  duplicate_note_rate:
+    weight: 0.9
+    target: minimize
+  duplicate_cluster_count:
+    weight: 0.8
+    target: minimize
+  grounded_note_rate:
+    weight: 0.9
+    target: maximize
+  orphan_note_rate:
+    weight: 0.7
+    target: minimize
+  isolated_note_rate:
+    weight: 0.8
+    target: minimize
+  canonical_link_density:
+    weight: 0.7
+    target: maximize
+  graph_churn:
+    weight: 0.7
+    target: minimize
+  graph_churn_rate:
+    weight: 0.8
+    target: minimize
+  retrieval_qa_score:
+    weight: 1.0
+    target: maximize
+  paraphrase_stability:
+    weight: 0.8
+    target: maximize
+  chunking_stability:
+    weight: 0.8
+    target: maximize
+
+comparison_policy:
+  require_all_hard_constraints: true
+  minimum_soft_improvement: 0.0
+  reject_on_major_regression: true

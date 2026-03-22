@@ -1,0 +1,104 @@
+{
+  "profiles": {
+    "deterministic_conservative": {
+      "backend": "deterministic",
+      "provider": "local",
+      "model": "deterministic_keyword_v1",
+      "enabled": true,
+      "options": {
+        "windowing_enabled": true,
+        "max_window_chars": 12000,
+        "max_window_blocks_file": 24,
+        "max_window_blocks_conversation": 40,
+        "window_overlap_blocks_file": 2,
+        "window_overlap_blocks_conversation": 4,
+        "create_heading_concepts": true,
+        "create_conversation_topic": true,
+        "extract_people_from_speakers": true,
+        "max_titlecase_entities": 12,
+        "max_keywords_file": 4,
+        "max_keywords_conversation": 5,
+        "keyword_min_count": 2,
+        "allow_hyphen_keywords": true
+      }
+    },
+    "deterministic_minimal": {
+      "backend": "deterministic",
+      "provider": "local",
+      "model": "deterministic_keyword_v1",
+      "enabled": true,
+      "options": {
+        "windowing_enabled": true,
+        "max_window_chars": 12000,
+        "max_window_blocks_file": 24,
+        "max_window_blocks_conversation": 40,
+        "window_overlap_blocks_file": 2,
+        "window_overlap_blocks_conversation": 4,
+        "create_heading_concepts": true,
+        "create_conversation_topic": true,
+        "extract_people_from_speakers": true,
+        "max_titlecase_entities": 8,
+        "max_keywords_file": 2,
+        "max_keywords_conversation": 2,
+        "keyword_min_count": 3,
+        "allow_hyphen_keywords": true
+      }
+    },
+    "deterministic_tight_windows": {
+      "backend": "deterministic",
+      "provider": "local",
+      "model": "deterministic_keyword_v1",
+      "enabled": true,
+      "options": {
+        "windowing_enabled": true,
+        "max_window_chars": 2400,
+        "max_window_blocks_file": 8,
+        "max_window_blocks_conversation": 12,
+        "window_overlap_blocks_file": 2,
+        "window_overlap_blocks_conversation": 4,
+        "create_heading_concepts": true,
+        "create_conversation_topic": true,
+        "extract_people_from_speakers": true,
+        "max_titlecase_entities": 8,
+        "max_keywords_file": 2,
+        "max_keywords_conversation": 2,
+        "keyword_min_count": 3,
+        "allow_hyphen_keywords": true
+      }
+    },
+    "openai_primary": {
+      "backend": "openai_responses",
+      "provider": "openai",
+      "model": "gpt-5.4",
+      "enabled": true,
+      "options": {
+        "response_format": "json_schema",
+        "instruction_set": "structured_extraction_v1",
+        "max_output_tokens": 4000,
+        "max_output_tokens_cap": 12000,
+        "windowing_enabled": true,
+        "max_window_chars": 12000,
+        "max_window_blocks_file": 24,
+        "max_window_blocks_conversation": 40,
+        "window_overlap_blocks_file": 2,
+        "window_overlap_blocks_conversation": 4
+      }
+    },
+    "anthropic_primary": {
+      "backend": "anthropic_messages",
+      "provider": "anthropic",
+      "model": "claude-sonnet-4-20250514",
+      "enabled": true,
+      "options": {
+        "instruction_set": "structured_extraction_v1",
+        "max_output_tokens": 4000,
+        "windowing_enabled": true,
+        "max_window_chars": 12000,
+        "max_window_blocks_file": 24,
+        "max_window_blocks_conversation": 40,
+        "window_overlap_blocks_file": 2,
+        "window_overlap_blocks_conversation": 4
+      }
+    }
+  }
+}

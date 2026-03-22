@@ -1,0 +1,88 @@
+{
+  "suite_name": "metamorphic_file_stability",
+  "cases": [
+    {
+      "id": "identity_equivalence_mars_overview",
+      "case_type": "metamorphic",
+      "input_kind": "file",
+      "input_path": "../../files/00 mars gemini - overview.md",
+      "baseline": {
+        "profile": "deterministic_minimal"
+      },
+      "transformed": {
+        "profile": "deterministic_minimal"
+      },
+      "expect": {
+        "baseline_integrity_issue_count_max": 0,
+        "transformed_integrity_issue_count_max": 0,
+        "canonical_graph_churn_max": 0,
+        "canonical_added_count_max": 0,
+        "canonical_removed_count_max": 0,
+        "canonical_changed_count_max": 0,
+        "canonical_note_count_delta_max": 0,
+        "claim_count_delta_max": 0,
+        "duplicate_note_rate_delta_max": 0.0,
+        "citation_coverage_delta_max": 0.0,
+        "window_count_delta_max": 0
+      }
+    },
+    {
+      "id": "append_boilerplate_mars_overview",
+      "case_type": "metamorphic",
+      "input_kind": "file",
+      "input_path": "../../files/00 mars gemini - overview.md",
+      "baseline": {
+        "profile": "deterministic_minimal"
+      },
+      "transformed": {
+        "profile": "deterministic_minimal",
+        "transform": {
+          "type": "append_boilerplate",
+          "text": "Appendix: This appendix contains export boilerplate, legal footer text, and unrelated archival markers. It should not change the extracted graph."
+        }
+      },
+      "expect": {
+        "baseline_integrity_issue_count_max": 0,
+        "transformed_integrity_issue_count_max": 0,
+        "canonical_graph_churn_max": 1,
+        "canonical_added_count_max": 1,
+        "canonical_removed_count_max": 0,
+        "canonical_changed_count_max": 0,
+        "canonical_note_count_delta_max": 1,
+        "claim_count_delta_max": 1,
+        "duplicate_note_rate_delta_max": 0.05,
+        "citation_coverage_delta_max": 0.0,
+        "window_count_delta_max": 0
+      }
+    },
+    {
+      "id": "append_boilerplate_project_overview",
+      "case_type": "metamorphic",
+      "input_kind": "file",
+      "input_path": "../../files/init project overview.md",
+      "baseline": {
+        "profile": "deterministic_minimal"
+      },
+      "transformed": {
+        "profile": "deterministic_minimal",
+        "transform": {
+          "type": "append_boilerplate",
+          "text": "Appendix: export footer, mailing metadata, and unrelated archival boilerplate only."
+        }
+      },
+      "expect": {
+        "baseline_integrity_issue_count_max": 0,
+        "transformed_integrity_issue_count_max": 0,
+        "canonical_graph_churn_max": 0,
+        "canonical_added_count_max": 0,
+        "canonical_removed_count_max": 0,
+        "canonical_changed_count_max": 0,
+        "canonical_note_count_delta_max": 0,
+        "claim_count_delta_max": 0,
+        "duplicate_note_rate_delta_max": 0.0,
+        "citation_coverage_delta_max": 0.0,
+        "window_count_delta_max": 0
+      }
+    }
+  ]
+}

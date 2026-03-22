@@ -1,0 +1,38 @@
+{
+  "artifacts_root": "artifacts/self_update",
+  "ledger_path": "state/ledger.jsonl",
+  "benchmark_manifests": [
+    "benchmarks/frozen/manifest.json",
+    "benchmarks/metamorphic/manifest.json",
+    "benchmarks/retrieval/manifest.json"
+  ],
+  "allowed_skill_targets": [
+    "skills/extract-knowledge/SKILL.md",
+    "skills/resolve-identity/SKILL.md",
+    "skills/update-vault/SKILL.md"
+  ],
+  "default_profiles": {
+    "proposal": "openai_primary",
+    "benchmark": "openai_primary"
+  },
+  "warning_thresholds": {
+    "isolated_note_rate": 0.6,
+    "canonical_link_density": 0.15,
+    "duplicate_note_rate": 0.08,
+    "duplicate_cluster_count": 4,
+    "graph_churn_rate": 0.15,
+    "retrieval_qa_accuracy": 0.85,
+    "citation_hit_rate": 0.85
+  },
+  "comparison": {
+    "max_failed_case_regression": 0,
+    "max_hard_constraint_issue_regression": 0,
+    "max_duplicate_note_rate_regression": 0.02,
+    "max_isolated_note_rate_regression": 0.03,
+    "max_graph_churn_rate_regression": 0.03,
+    "max_retrieval_qa_regression": 0.03,
+    "max_canonical_link_density_regression": 0.02,
+    "min_score_improvement": 0.01,
+    "primary_metric_min_improvement": 0.01
+  }
+}

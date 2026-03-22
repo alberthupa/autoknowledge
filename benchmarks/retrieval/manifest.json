@@ -1,0 +1,143 @@
+{
+  "suite_name": "retrieval_qa_file_grounding",
+  "cases": [
+    {
+      "id": "mars_overview_mentions",
+      "case_type": "retrieval_qa",
+      "input_kind": "file",
+      "input_path": "../../files/00 mars gemini - overview.md",
+      "profile": "deterministic_minimal",
+      "scope": "canonical",
+      "top_k": 3,
+      "questions": [
+        {
+          "id": "copilot",
+          "question": "Where is Copilot mentioned in the Mars overview?",
+          "expect": {
+            "expected_note_paths_any": [
+              "entities/copilot.md"
+            ],
+            "expected_source_block_ids_any": [
+              "e0023"
+            ],
+            "expected_source_path_contains_any": [
+              "00-mars-gemini-overview"
+            ]
+          }
+        },
+        {
+          "id": "didier_altide",
+          "question": "Where is Didier Altide mentioned?",
+          "expect": {
+            "expected_note_paths_any": [
+              "entities/didier-altide.md"
+            ],
+            "expected_source_block_ids_any": [
+              "e0001"
+            ],
+            "expected_source_path_contains_any": [
+              "00-mars-gemini-overview"
+            ]
+          }
+        },
+        {
+          "id": "portability",
+          "question": "Where is portability mentioned?",
+          "expect": {
+            "expected_note_paths_any": [
+              "concepts/portability.md"
+            ],
+            "expected_source_block_ids_any": [
+              "e0023"
+            ],
+            "expected_source_path_contains_any": [
+              "00-mars-gemini-overview"
+            ]
+          }
+        }
+      ],
+      "expect": {
+        "outcome": "success",
+        "hard_constraint_issue_count_max": 0,
+        "broken_link_count_max": 0,
+        "citation_coverage_min": 1.0,
+        "grounded_note_rate_min": 1.0,
+        "orphan_note_rate_max": 0.0,
+        "qa_question_count_min": 3,
+        "qa_accuracy_min": 1.0,
+        "qa_note_hit_rate_min": 1.0,
+        "qa_citation_hit_rate_min": 1.0
+      }
+    },
+    {
+      "id": "project_overview_mentions",
+      "case_type": "retrieval_qa",
+      "input_kind": "file",
+      "input_path": "../../files/init project overview.md",
+      "profile": "deterministic_minimal",
+      "scope": "canonical",
+      "top_k": 3,
+      "questions": [
+        {
+          "id": "timbr",
+          "question": "Where is Timbr mentioned?",
+          "expect": {
+            "expected_note_paths_any": [
+              "entities/timbr.md"
+            ],
+            "expected_source_block_ids_any": [
+              "e0003",
+              "e0028",
+              "e0039"
+            ],
+            "expected_source_path_contains_any": [
+              "project-intent-what-we-are-actually-building"
+            ]
+          }
+        },
+        {
+          "id": "data_architect",
+          "question": "Where is data architect mentioned?",
+          "expect": {
+            "expected_note_paths_any": [
+              "entities/data-architect.md"
+            ],
+            "expected_source_block_ids_any": [
+              "e0076"
+            ],
+            "expected_source_path_contains_any": [
+              "project-intent-what-we-are-actually-building"
+            ]
+          }
+        },
+        {
+          "id": "solution_architect",
+          "question": "Where is solution architect mentioned?",
+          "expect": {
+            "expected_note_paths_any": [
+              "entities/solution-architect.md"
+            ],
+            "expected_source_block_ids_any": [
+              "e0072"
+            ],
+            "expected_source_path_contains_any": [
+              "project-intent-what-we-are-actually-building"
+            ]
+          }
+        }
+      ],
+      "expect": {
+        "outcome": "success",
+        "hard_constraint_issue_count_max": 0,
+        "broken_link_count_max": 0,
+        "citation_coverage_min": 1.0,
+        "grounded_note_rate_min": 1.0,
+        "orphan_note_rate_max": 0.0,
+        "qa_question_count_min": 3,
+        "qa_accuracy_min": 1.0,
+        "qa_note_hit_rate_min": 1.0,
+        "qa_citation_hit_rate_min": 1.0
+      }
+    }
+  ]
+}

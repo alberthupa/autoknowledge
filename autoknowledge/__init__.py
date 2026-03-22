@@ -1,0 +1,2 @@
+"""AutoKnowledge thin harness."""
+
