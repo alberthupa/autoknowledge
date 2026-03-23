@@ -143,8 +143,9 @@ def answer_question(
             item[1].rendered_text,
         )
     )
+    ranked = _select_ranked_facts(scored, top_k=top_k)
     matches = []
-    for rank, (score, fact) in enumerate(scored[:top_k], start=1):
+    for rank, (score, fact) in enumerate(ranked, start=1):
         matches.append(
             {
                 "rank": rank,
@@ -252,10 +253,42 @@ def _score_fact(
     if fact.note_tokens and fact.note_tokens.issubset(question_tokens):
         score += 8 + len(fact.note_tokens)
     if "mentioned" in normalized_question and fact.fact_text.lower().startswith("mentioned_in"):
-        score += 2
+        score += 20
+    elif "mentioned" in normalized_question and "mentioned" in fact.fact_text.lower():
+        score += 8
+    if "mentioned" in normalized_question and fact.note_type == "entity":
+        score += 3
     if "source" in normalized_question and fact.source_refs:
         score += 1
     return score
+
+
+def _select_ranked_facts(scored: list[tuple[int, FactRecord]], *, top_k: int) -> list[tuple[int, FactRecord]]:
+    primary: list[tuple[int, FactRecord]] = []
+    used_note_paths: set[str] = set()
+    used_keys: set[tuple[str, str]] = set()
+
+    for item in scored:
+        key = (item[1].note_path, item[1].fact_text)
+        if key in used_keys:
+            continue
+        if item[1].note_path in used_note_paths:
+            continue
+        primary.append(item)
+        used_note_paths.add(item[1].note_path)
+        used_keys.add(key)
+        if len(primary) >= top_k:
+            return primary
+
+    for item in scored:
+        key = (item[1].note_path, item[1].fact_text)
+        if key in used_keys:
+            continue
+        primary.append(item)
+        used_keys.add(key)
+        if len(primary) >= top_k:
+            break
+    return primary
 
 
 def _evaluate_question(

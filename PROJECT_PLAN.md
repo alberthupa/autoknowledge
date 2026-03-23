@@ -53,6 +53,11 @@ This file tracks the delivery plan for AutoKnowledge. Checkboxes represent the c
 - [x] Implement candidate-vs-baseline evaluation.
 - [x] Implement accept/reject rules with guardrails.
 - [x] Persist self-update reports under `artifacts/`.
+- [x] Tighten acceptance so a candidate must improve the primary failure cluster, not just the composite score.
+- [x] Put mutable skill files on the real runtime path for live-model extraction and proposal generation.
+- [x] Add debug visibility for reingest and metamorphic failures so remaining churn can be diagnosed precisely.
+- [x] Stabilize live-source reingest enough that frozen idempotence cases now pass on the live path.
+- [x] Improve retrieval QA behavior enough that the live retrieval suite now passes.
 
 ## Milestone 6: Personal Vault Integration
 
@@ -69,12 +74,62 @@ This file tracks the delivery plan for AutoKnowledge. Checkboxes represent the c
 - [ ] Document the runtime contract for sharing the skill pack.
 - [ ] Version the accepted skill pack and evaluation baseline.
 
+## Session Progress
+
+This session materially changed the project state.
+
+Completed and verified:
+
+- [x] Added repo-owned deterministic model/profile configuration and live model selection.
+- [x] Added `.env` loading for local CLI runs.
+- [x] Added extraction-time windowing for large files and conversations.
+- [x] Added empty-input skipping and cumulative batch dry-run.
+- [x] Added frozen, metamorphic, and retrieval benchmark suites.
+- [x] Added source-grounded retrieval QA.
+- [x] Added graph-quality metrics for duplicate rate, isolated-note rate, and graph churn.
+- [x] Added bounded self-update with artifact logging and strict accept/reject rules.
+- [x] Fixed live-path idempotence regressions caused by same-source anchor churn.
+- [x] Tightened provider-only candidate admission and wrapper-text filtering for live extraction.
+- [x] Improved retrieval ranking so direct `mentioned_in` facts and citation-bearing facts surface correctly.
+- [x] Captured reusable architecture lessons in `self-improving-knowledge-ingestion-idea.md`.
+
+Current live state at the end of the session:
+
+- [x] Frozen benchmark suite passes on the live path.
+- [x] Retrieval benchmark suite passes on the live path.
+- [ ] Metamorphic benchmark suite still has 3 failing live cases.
+- [ ] Duplicate-rate and graph-churn improvements are now small enough that the acceptance policy needs finer metric-specific thresholds.
+- [ ] The system is improving correctly, but it is not yet safe for unattended writes into the personal vault.
+
 ## What To Do Next
 
-The next concrete step is Milestone 6.
+The next concrete step is not Milestone 6 yet.
 
-1. Add explicit configuration for the external personal Obsidian vault path and backup policy.
+Before Milestone 6, finish the remaining live-path stabilization work:
+
+1. Calibrate metric-specific acceptance thresholds in `self_update`.
+   - Retrieval accuracy can use coarse thresholds like `0.01`.
+   - Duplicate-rate and churn improvements now happen at much smaller scales and need finer thresholds or relative-improvement rules.
+   - This should prevent useful small wins from being rejected for the wrong reason.
+
+2. Keep reducing live metamorphic churn.
+   - The remaining live failures are all in `benchmarks/metamorphic/manifest.json`.
+   - Focus especially on:
+     - `identity_equivalence_mars_overview`
+     - `append_boilerplate_mars_overview`
+     - `append_boilerplate_project_overview`
+   - The likely work area is still live extraction consistency and candidate normalization, not schema or vault integration.
+
+3. Tighten duplicate handling on the live path.
+   - The current primary failure cluster has shifted to `high_duplicate_note_rate`.
+   - Continue improving provider-only candidate admission, deterministic anchoring, and identity-resolution stability until duplicate-rate regressions fall further.
+
+4. Rerun self-update after each runtime stabilization pass and keep only accepted changes that improve the current primary cluster.
+
+Only after those steps should Milestone 6 begin:
+
+1. Add explicit configuration for the external personal vault path and backup policy.
 2. Add scheduled entrypoints for daily ingest and daily self-update.
 3. Verify the same skill pack and thin harness can be handed to the target autonomous agent setup without repo-specific assumptions.
 
-The bounded self-update loop is now in place. The next leverage point is connecting it safely to the real personal vault and the external autonomous agent runtime.
+Milestone 5 is functionally complete, but the live benchmark baseline still needs one more round of stabilization before the system should be connected to the real personal vault.
