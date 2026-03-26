@@ -29,7 +29,7 @@ Run the bounded daily auto-update loop for the skill pack.
 
 - one candidate change per run
 - no relaxing hard constraints
-- do not edit `agents.md` during routine self-update
+- do not edit `AGENTS.md` during routine self-update
 - if the evaluator missed a real failure, extend the evaluator before optimizing further
 
 ## Success

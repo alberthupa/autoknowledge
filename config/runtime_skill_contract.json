@@ -1,0 +1,174 @@
+{
+  "policy_file": "AGENTS.md",
+  "commands": {
+    "benchmark-run": {
+      "kind": "harness_only"
+    },
+    "check": {
+      "kind": "harness_evaluation",
+      "skill_refs": [
+        "evaluate-graph"
+      ]
+    },
+    "diff": {
+      "kind": "harness_only"
+    },
+    "index": {
+      "kind": "harness_only"
+    },
+    "ingest-batch-files": {
+      "kind": "skill_backed",
+      "skill_refs": [
+        "ingest-knowledge",
+        "ingest-source",
+        "extract-knowledge",
+        "resolve-identity",
+        "update-vault",
+        "evaluate-graph",
+        "repair-graph"
+      ]
+    },
+    "ingest-conversation": {
+      "kind": "skill_backed",
+      "skill_refs": [
+        "ingest-knowledge",
+        "ingest-source",
+        "extract-knowledge",
+        "resolve-identity",
+        "update-vault",
+        "evaluate-graph",
+        "repair-graph"
+      ]
+    },
+    "ingest-file": {
+      "kind": "skill_backed",
+      "skill_refs": [
+        "ingest-knowledge",
+        "ingest-source",
+        "extract-knowledge",
+        "resolve-identity",
+        "update-vault",
+        "evaluate-graph",
+        "repair-graph"
+      ]
+    },
+    "ledger": {
+      "kind": "harness_only"
+    },
+    "ledger append": {
+      "kind": "harness_only"
+    },
+    "ledger tail": {
+      "kind": "harness_only"
+    },
+    "list-models": {
+      "kind": "harness_only"
+    },
+    "metrics": {
+      "kind": "harness_evaluation",
+      "skill_refs": [
+        "evaluate-graph"
+      ]
+    },
+    "qa-run": {
+      "kind": "harness_evaluation",
+      "skill_refs": [
+        "evaluate-graph"
+      ]
+    },
+    "repair-graph": {
+      "kind": "skill_backed",
+      "skill_refs": [
+        "repair-graph",
+        "evaluate-graph"
+      ]
+    },
+    "runtime-contract-check": {
+      "kind": "harness_only"
+    },
+    "self-update-run": {
+      "kind": "skill_backed",
+      "skill_refs": [
+        "self-update-knowledge",
+        "evaluate-graph",
+        "propose-skill-change",
+        "extend-evaluation"
+      ]
+    }
+  },
+  "skills": {
+    "evaluate-graph": {
+      "entrypoints": [
+        "check",
+        "metrics",
+        "qa-run",
+        "self-update-run"
+      ],
+      "kind": "evaluation"
+    },
+    "extend-evaluation": {
+      "entrypoints": [
+        "self-update-run"
+      ],
+      "kind": "internal_only"
+    },
+    "extract-knowledge": {
+      "entrypoints": [
+        "ingest-file",
+        "ingest-conversation",
+        "ingest-batch-files"
+      ],
+      "kind": "bounded_ingest_step"
+    },
+    "ingest-knowledge": {
+      "entrypoints": [
+        "ingest-file",
+        "ingest-conversation",
+        "ingest-batch-files"
+      ],
+      "kind": "orchestration"
+    },
+    "ingest-source": {
+      "entrypoints": [
+        "ingest-file",
+        "ingest-conversation",
+        "ingest-batch-files"
+      ],
+      "kind": "bounded_ingest_step"
+    },
+    "propose-skill-change": {
+      "entrypoints": [
+        "self-update-run"
+      ],
+      "kind": "bounded_self_update_step"
+    },
+    "repair-graph": {
+      "entrypoints": [
+        "repair-graph"
+      ],
+      "kind": "orchestration"
+    },
+    "resolve-identity": {
+      "entrypoints": [
+        "ingest-file",
+        "ingest-conversation",
+        "ingest-batch-files"
+      ],
+      "kind": "bounded_ingest_step"
+    },
+    "self-update-knowledge": {
+      "entrypoints": [
+        "self-update-run"
+      ],
+      "kind": "orchestration"
+    },
+    "update-vault": {
+      "entrypoints": [
+        "ingest-file",
+        "ingest-conversation",
+        "ingest-batch-files"
+      ],
+      "kind": "bounded_ingest_step"
+    }
+  }
+}

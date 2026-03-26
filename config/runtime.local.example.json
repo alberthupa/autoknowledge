@@ -1,0 +1,8 @@
+{
+  "vault": {
+    "path": "/home/albert/repos2/obsidian",
+    "profile": "obsidian_albert",
+    "backup_dir": "/home/albert/repos2/autoknowledge/artifacts/vault_backups",
+    "require_backup_on_apply": true
+  }
+}

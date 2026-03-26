@@ -77,6 +77,23 @@ Field meanings:
 - `managed_by`: identifies the notes this system owns
 - `schema_version`: current schema version for future migrations
 
+### Legacy Minimal Adoption Mode
+
+Existing human-maintained notes may be adopted in a lighter managed mode:
+
+```yaml
+managed_format: "legacy_minimal"
+```
+
+In this mode:
+
+- the note is managed for ownership and identity
+- the body should remain structurally unchanged
+- only minimal identity frontmatter is required
+- full canonical sections and full common frontmatter are not required yet
+
+This is the default adoption path for legacy notes in a real vault profile.
+
 ## Type-Specific Frontmatter
 
 ### `source`

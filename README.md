@@ -6,7 +6,7 @@ AutoKnowledge is a skill-pack project for autonomous knowledge extraction into a
 
 The central idea is to treat an agent as:
 
-- a fixed policy layer in `agents.md`
+- a fixed policy layer in `AGENTS.md`
 - a mutable behavior layer in `skills/`
 - a thin deterministic harness for indexing, diffing, and scoring
 
@@ -98,7 +98,7 @@ If the vault result changes too much under these transformations, the skill pack
 ## Repository layout
 
 ```text
-agents.md
+AGENTS.md
 skills/
 config/
 benchmarks/
@@ -111,7 +111,7 @@ main.py
 autoknowledge/
 ```
 
-### `agents.md`
+### `AGENTS.md`
 
 Defines the fixed operating policy, routing rules, invariants, and self-update boundaries.
 
@@ -126,6 +126,9 @@ Contains note schema and evaluation configuration. These may evolve more slowly 
 Important runtime files:
 
 - `config/runtime.json` selects the default extractor profile for files, conversations, and batch runs
+- `config/runtime.local.json` can override the vault path, vault profile, and backup policy for one local machine without changing tracked config
+- `config/runtime.local.example.json` shows the intended local override shape
+- `config/runtime_skill_contract.json` is the machine-readable command-to-skill contract checked by the harness
 - `config/model_profiles.json` defines the named extractor profiles and their backend/model settings
 - `config/extraction_contract.md` defines the structured payload expected between extraction and writing
 - `config/self_update.json` defines the bounded self-update policy, allowed target skills, warning thresholds, and comparison guardrails
@@ -158,21 +161,33 @@ Contain the thin local harness for:
 Current zero-dependency commands:
 
 ```bash
+cp config/runtime.local.example.json config/runtime.local.json
 python3 main.py index --vault /path/to/vault --output /tmp/vault_index.json
+python3 main.py index --vault /path/to/vault --vault-profile obsidian_albert --output /tmp/vault_index.json
+python3 main.py index --output /tmp/vault_index.json
 python3 main.py check --vault /path/to/vault
+python3 main.py check
 python3 main.py metrics --vault /path/to/vault
+python3 main.py metrics
 python3 main.py diff --before /tmp/before.json --after /tmp/after.json
 python3 main.py ingest-file --vault /path/to/vault --input /path/to/file.md
+python3 main.py ingest-file --vault /path/to/vault --vault-profile obsidian_albert --input /path/to/file.md
+python3 main.py ingest-file --input /path/to/file.md
 python3 main.py ingest-file --vault /path/to/vault --input /path/to/file.md --apply
+python3 main.py ingest-file --input /path/to/file.md --apply
 python3 main.py ingest-file --vault /path/to/vault --input /path/to/file.md --profile deterministic_minimal
 python3 main.py ingest-file --vault /path/to/vault --input /path/to/file.md --profile openai_primary --model gpt-5.4
 python3 main.py ingest-conversation --vault /path/to/vault --input /path/to/chat.txt
+python3 main.py ingest-conversation --input /path/to/chat.txt
 python3 main.py ingest-conversation --vault /path/to/vault --input /path/to/chat.txt --apply
-python3 main.py ingest-batch-files --vault /path/to/vault --input-dir files
+python3 main.py ingest-batch-files --input-dir files
 python3 main.py ingest-batch-files --vault /path/to/vault --input-dir files --profile deterministic_minimal --summary-output /tmp/batch.json
 python3 main.py ingest-batch-files --vault /path/to/vault --input-dir files --profile anthropic_primary --model claude-sonnet-4-20250514
 python3 main.py list-models --provider openai
 python3 main.py list-models --provider anthropic
+python3 main.py repair-graph --vault /path/to/vault
+python3 main.py repair-graph --vault /path/to/vault --apply --backup-dir /path/to/backups
+python3 main.py runtime-contract-check
 python3 main.py benchmark-run --manifest benchmarks/frozen/manifest.json
 python3 main.py benchmark-run --manifest benchmarks/metamorphic/manifest.json
 python3 main.py benchmark-run --manifest benchmarks/retrieval/manifest.json
@@ -186,6 +201,39 @@ python3 main.py ledger tail --path state/ledger.jsonl --limit 5
 
 These commands are intentionally narrow. They are the fixed measurement layer that later ingestion and self-update skills should call into rather than re-implementing their own scoring logic.
 
+## Runtime And Skill Contract
+
+The current repo is Python-first:
+
+- `main.py` is the only user-facing command dispatcher
+- `AGENTS.md` defines the fixed operating policy
+- `skills/` defines the mutable behavior contract used by live prompt construction and self-update
+- skills are not a second CLI surface; they are the bounded behavior modules behind the runtime
+
+Current command mapping:
+
+- skill-backed ingestion commands:
+  - `ingest-file`, `ingest-conversation`, `ingest-batch-files` -> `ingest-knowledge`
+  - bounded internal ingestion steps -> `ingest-source`, `extract-knowledge`, `resolve-identity`, `update-vault`
+- skill-backed repair command:
+  - `repair-graph` -> `repair-graph`
+- skill-backed self-update command:
+  - `self-update-run` -> `self-update-knowledge`
+  - bounded internal self-update steps -> `evaluate-graph`, `propose-skill-change`, `extend-evaluation`
+- harness evaluation utilities:
+  - `check`, `metrics`, and `qa-run` support the evaluation policy and operationalize parts of `evaluate-graph`, but are not mutable skills
+- harness-only infrastructure:
+  - `index`, `diff`, `runtime-contract-check`, `benchmark-run`, `list-models`, `ledger`, `ledger append`, and `ledger tail`
+
+Current repair behavior is intentionally conservative:
+
+- it normalizes uniquely resolvable wiki links onto canonical paths
+- it dedupes repair-safe frontmatter lists on managed canonical notes
+- it reports broken links, duplicate clusters, orphan notes, and isolated notes for manual review
+- it does not attempt automatic duplicate merges or semantic graph rewrites
+
+`python3 main.py runtime-contract-check` now validates this contract against the live CLI surface, the current `skills/` tree, and the expected `AGENTS.md` policy filename.
+
 Current ingestion behavior is conservative by design:
 
 - dry-run is the default
@@ -196,6 +244,26 @@ Current ingestion behavior is conservative by design:
 - re-ingesting identical input produces no-op plans
 - extracted canonical notes prefer sourced relationships over ambitious summaries
 - raw source notes stay whole; large inputs are windowed only at extraction time and then reduced back into one plan
+
+Vault shape is now profile-driven:
+
+- `config/vault_profiles.json` maps internal note classes onto a concrete vault layout
+- `canonical_managed` keeps the original repo-owned layout
+- `obsidian_albert` infers `400 Entities/...` notes as entity notes even when frontmatter is missing
+- strict schema validation applies only to notes managed by AutoKnowledge
+
+Profile-aware apply safety is now enforced:
+
+- writes are rejected if any planned path falls outside the active profile's managed roots
+- non-canonical vault profiles require a backup directory when an apply would overwrite existing notes, either from `--backup-dir` or runtime config
+- existing legacy notes are adopted with `managed_format: "legacy_minimal"` instead of being rewritten into the full canonical template
+
+Local runtime targeting is now explicit:
+
+- tracked `config/runtime.json` stays portable and can leave `vault.path` empty
+- ignored `config/runtime.local.json` can point at one real vault and one real backup location
+- vault commands now fall back to `runtime.local.json` or `runtime.json` when `--vault` and `--vault-profile` are omitted
+- apply commands now also fall back to the configured `vault.backup_dir`
 
 The structured ingestion payload is documented in [config/extraction_contract.md](/home/albert/python_projects/autoknowledge/config/extraction_contract.md).
 
@@ -230,6 +298,7 @@ Extractor choice should be changed in repo config, not in the chat thread.
 The intended control points are:
 
 - `config/runtime.json` for the default profile used by normal runs
+- `config/runtime.local.json` for a machine-local vault path, vault profile, and backup policy
 - `config/model_profiles.json` for the profile definitions themselves
 - `--profile ...` only for explicit one-off comparison runs
 
@@ -240,7 +309,7 @@ Current state:
 - every ingestion plan records `extractor_profile`, `extractor_backend`, and `extractor_model` in its stats
 - `openai_primary` retries once or twice on `max_output_tokens` truncation up to the cap in `config/model_profiles.json`
 - extractor profiles also control windowing thresholds for files and conversations
-- live extraction prompts now load `agents.md` plus the relevant `skills/*.md`, so prompt-level skill edits can affect benchmark behavior
+- live extraction prompts now load `AGENTS.md` plus the relevant `skills/*.md`, so prompt-level skill edits can affect benchmark behavior
 - live provider output is stabilized before vault writes: a deterministic extraction floor is merged in, low-signal provider-only candidates are dropped, and re-ingest candidates are snapped to existing vault notes by title/alias/slug when possible
 
 This keeps evaluation comparable because extraction changes are versioned and explicit.
@@ -283,6 +352,7 @@ Notes:
 
 - the default self-update policy uses `openai_primary` for both proposal and benchmark runs
 - you can override proposal and benchmark models independently with `--proposal-model` and `--benchmark-model`
+- primary-cluster acceptance thresholds now live in `config/self_update.json` and can be tuned per metric with absolute and relative improvement floors
 - deterministic self-update runs are useful as a smoke test, but they will usually reject with `no measurable improvement` because deterministic extraction does not consume prompt-only skill edits
 
 ## Principles
@@ -312,7 +382,7 @@ These are the main lessons from building and correcting this system. If you rebu
 ### 1. The mutable surface must be real
 
 - self-update is fake if editing `skills/*.md` does not affect runtime behavior
-- for live model paths, prompt construction must actually load `agents.md` and the relevant skill files
+- for live model paths, prompt construction must actually load `AGENTS.md` and the relevant skill files
 - if prompt edits are not on the execution path, benchmark gains or losses are meaningless
 
 ### 2. Separate deterministic harness from mutable behavior
@@ -393,3 +463,30 @@ This repository now has:
 The next implementation step is live-path runtime stabilization until the OpenAI-backed baseline is stable enough for safe external-vault integration.
 
 See [PROJECT_PLAN.md](/home/albert/python_projects/autoknowledge/PROJECT_PLAN.md) for the next milestones.
+
+## Vault Targets
+
+Two local runtime overlays are now available for switching vault targets without editing tracked config:
+
+- copy vault: [config/runtime.copy.local.json](/home/albert/repos2/autoknowledge/config/runtime.copy.local.json)
+- real vault: [config/runtime.real.local.json](/home/albert/repos2/autoknowledge/config/runtime.real.local.json)
+
+Current default local runtime remains:
+
+- [config/runtime.local.json](/home/albert/repos2/autoknowledge/config/runtime.local.json)
+
+Use the copy vault:
+
+```bash
+python3 main.py check --config-root config --runtime-config config/runtime.copy.local.json
+python3 main.py ingest-file --input test_ingest.md --config-root config --runtime-config config/runtime.copy.local.json
+python3 main.py ingest-file --input test_ingest.md --config-root config --runtime-config config/runtime.copy.local.json --apply
+```
+
+Use the real vault:
+
+```bash
+python3 main.py check --config-root config --runtime-config config/runtime.real.local.json
+python3 main.py ingest-file --input test_ingest.md --config-root config --runtime-config config/runtime.real.local.json
+python3 main.py ingest-file --input test_ingest.md --config-root config --runtime-config config/runtime.real.local.json --apply
+```

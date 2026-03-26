@@ -4,6 +4,13 @@
     "conversation": "deterministic_conservative",
     "batch": "deterministic_conservative"
   },
+  "vault": {
+    "path": "",
+    "profile": "canonical_managed",
+    "backup_dir": "artifacts/vault_backups",
+    "require_backup_on_apply": false
+  },
+  "default_vault_profile": "canonical_managed",
   "paths": {
     "default_batch_input_dir": "files",
     "default_batch_plan_dir": "artifacts/batch_plans"

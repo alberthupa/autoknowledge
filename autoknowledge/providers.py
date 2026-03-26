@@ -12,14 +12,14 @@ from typing import Any
 from .repo_context import build_context_bundle, read_repo_text
 
 EXTRACTION_CONTEXT_PATHS = [
-    "agents.md",
+    "AGENTS.md",
     "skills/extract-knowledge/SKILL.md",
     "skills/resolve-identity/SKILL.md",
     "skills/update-vault/SKILL.md",
 ]
 
 PROPOSAL_CONTEXT_PATHS = [
-    "agents.md",
+    "AGENTS.md",
     "skills/propose-skill-change/SKILL.md",
     "skills/self-update-knowledge/SKILL.md",
     "skills/evaluate-graph/SKILL.md",
@@ -537,6 +537,7 @@ def _extraction_result_schema() -> dict[str, Any]:
             "confidence": {"type": "string", "enum": ["high", "medium", "low"]},
             "aliases": {"type": "array", "items": {"type": "string"}},
             "kind": {"type": "string"},
+            "entity_kind": {"type": ["string", "null"]},
             "claims": {
                 "type": "array",
                 "items": {
@@ -571,6 +572,7 @@ def _extraction_result_schema() -> dict[str, Any]:
             "confidence",
             "aliases",
             "kind",
+            "entity_kind",
             "claims",
             "relationships",
         ],

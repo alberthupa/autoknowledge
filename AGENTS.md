@@ -25,6 +25,26 @@ Use exactly one primary mode per task.
 - For daily autonomous improvement, use `skills/self-update-knowledge`.
 - When the evaluator misses a recurring failure pattern, use `skills/extend-evaluation`.
 
+## Runtime Contract
+
+`main.py` is the user-facing command dispatcher. Skills are internal behavior modules that define how the runtime should ingest, evaluate, repair, and self-update; they are not an alternative CLI surface.
+
+Current command contract:
+
+- `ingest-file`, `ingest-conversation`, and `ingest-batch-files` execute the `ingest-knowledge` workflow and its bounded steps:
+  - `ingest-source`
+  - `extract-knowledge`
+  - `resolve-identity`
+  - `update-vault`
+- `repair-graph` executes the deterministic graph-repair workflow and may apply only small structural fixes that do not require semantic judgment.
+- `self-update-run` executes `self-update-knowledge` and its bounded steps:
+  - `evaluate-graph`
+  - `propose-skill-change`
+  - `extend-evaluation`
+- `check`, `metrics`, and `qa-run` are harness evaluation utilities that operationalize parts of `evaluate-graph`, but are not mutable skills themselves.
+- `index`, `diff`, `runtime-contract-check`, `benchmark-run`, `list-models`, and `ledger` are harness-only infrastructure commands.
+- `repair-graph` should prefer deterministic repairs such as link normalization and metadata cleanup, and leave duplicate merges or semantic restructures as manual review items.
+
 The authoritative vault contract lives in:
 
 - `config/vault_schema.md`
@@ -56,7 +76,7 @@ During self-update, changes are limited to:
 - additive benchmark content under `benchmarks/`
 - cautiously tuned weights in `config/eval_metrics.yaml`
 
-Do not edit `agents.md` during routine self-update.
+Do not edit `AGENTS.md` during routine self-update.
 
 Do not relax hard constraints.
 

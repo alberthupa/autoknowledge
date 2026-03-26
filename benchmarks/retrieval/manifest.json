@@ -5,23 +5,24 @@
       "id": "mars_overview_mentions",
       "case_type": "retrieval_qa",
       "input_kind": "file",
-      "input_path": "../../files/00 mars gemini - overview.md",
+      "input_path": "../shared/fixtures/mars_overview.md",
       "profile": "deterministic_minimal",
       "scope": "canonical",
       "top_k": 3,
       "questions": [
         {
           "id": "copilot",
-          "question": "Where is Copilot mentioned in the Mars overview?",
+          "question": "Where is Microsoft Copilot mentioned in the mars overview?",
           "expect": {
             "expected_note_paths_any": [
-              "entities/copilot.md"
+              "entities/microsoft-copilot.md"
             ],
             "expected_source_block_ids_any": [
-              "e0023"
+              "e0004",
+              "e0026"
             ],
             "expected_source_path_contains_any": [
-              "00-mars-gemini-overview"
+              "mars-overview"
             ]
           }
         },
@@ -33,10 +34,11 @@
               "entities/didier-altide.md"
             ],
             "expected_source_block_ids_any": [
-              "e0001"
+              "e0003",
+              "e0025"
             ],
             "expected_source_path_contains_any": [
-              "00-mars-gemini-overview"
+              "mars-overview"
             ]
           }
         },
@@ -45,13 +47,14 @@
           "question": "Where is portability mentioned?",
           "expect": {
             "expected_note_paths_any": [
-              "concepts/portability.md"
+              "entities/portability.md"
             ],
             "expected_source_block_ids_any": [
-              "e0023"
+              "e0005",
+              "e0027"
             ],
             "expected_source_path_contains_any": [
-              "00-mars-gemini-overview"
+              "mars-overview"
             ]
           }
         }
@@ -73,7 +76,7 @@
       "id": "project_overview_mentions",
       "case_type": "retrieval_qa",
       "input_kind": "file",
-      "input_path": "../../files/init project overview.md",
+      "input_path": "../shared/fixtures/project_overview.md",
       "profile": "deterministic_minimal",
       "scope": "canonical",
       "top_k": 3,
@@ -86,12 +89,11 @@
               "entities/timbr.md"
             ],
             "expected_source_block_ids_any": [
-              "e0003",
-              "e0028",
-              "e0039"
+              "e0002",
+              "e0026"
             ],
             "expected_source_path_contains_any": [
-              "project-intent-what-we-are-actually-building"
+              "project-overview"
             ]
           }
         },
@@ -103,10 +105,11 @@
               "entities/data-architect.md"
             ],
             "expected_source_block_ids_any": [
-              "e0076"
+              "e0005",
+              "e0027"
             ],
             "expected_source_path_contains_any": [
-              "project-intent-what-we-are-actually-building"
+              "project-overview"
             ]
           }
         },
@@ -118,10 +121,11 @@
               "entities/solution-architect.md"
             ],
             "expected_source_block_ids_any": [
-              "e0072"
+              "e0006",
+              "e0027"
             ],
             "expected_source_path_contains_any": [
-              "project-intent-what-we-are-actually-building"
+              "project-overview"
             ]
           }
         }

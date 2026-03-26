@@ -8,30 +8,31 @@ from typing import Any
 
 from .contracts import (
     COMMON_FIELDS,
-    CONCEPT_DIR,
-    CONVERSATION_DIR_PREFIX,
-    ENTITY_DIR,
     MANAGED_TYPES,
     REQUIRED_SECTIONS,
-    SOURCE_DIR_PREFIX,
-    TOPIC_DIR,
     TYPE_FIELDS,
-    UNRESOLVED_DIR,
 )
+from .vault_profiles import matches_profile_path, resolve_vault_profile
 
-SOURCE_FILE_RE = re.compile(r"^sources/files/\d{4}/\d{4}-\d{2}-\d{2}--[a-z0-9-]+--src_[A-Za-z0-9]+\.md$")
-CONVERSATION_FILE_RE = re.compile(
-    r"^sources/conversations/\d{4}/\d{4}-\d{2}-\d{2}--[a-z0-9-]+--conv_[A-Za-z0-9]+\.md$"
-)
-CANONICAL_FILE_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*\.md$")
-UNRESOLVED_FILE_RE = re.compile(
-    r"^inbox/unresolved/\d{4}-\d{2}-\d{2}--[a-z0-9-]+--unres_[A-Za-z0-9]+\.md$"
-)
 PRIMARY_SOURCE_RE = re.compile(r"Source:\s*\[\[([^\]]+#\^[A-Za-z0-9_-]+)\]\]")
+LEGACY_MINIMAL_FIELDS = {"id", "type", "title", "managed_by", "schema_version", "managed_format", "canonical_slug"}
+LEGACY_MINIMAL_TYPE_FIELDS = {
+    "entity": {"entity_kind"},
+    "concept": {"concept_kind"},
+    "topic": set(),
+    "unresolved": set(),
+}
 
 
-def validate_index(index: dict[str, Any]) -> dict[str, Any]:
+def validate_index(
+    index: dict[str, Any],
+    *,
+    vault_profile_name: str | None = None,
+    config_root: Any = None,
+) -> dict[str, Any]:
     notes = index["notes"]
+    resolved_profile_name = vault_profile_name or index.get("vault_profile_name")
+    profile = resolve_vault_profile(profile_name=resolved_profile_name, config_root=config_root)
     issues: list[dict[str, str]] = []
     path_lookup = {note["path"][:-3]: note for note in notes if note["path"].endswith(".md")}
     stem_lookup: dict[str, list[dict[str, Any]]] = {}
@@ -42,7 +43,7 @@ def validate_index(index: dict[str, Any]) -> dict[str, Any]:
         title_lookup.setdefault(_normalize(note["title"]), []).append(note)
 
     for note in notes:
-        issues.extend(_validate_note(note, path_lookup, stem_lookup, title_lookup))
+        issues.extend(_validate_note(note, path_lookup, stem_lookup, title_lookup, profile))
 
     return {"issue_count": len(issues), "issues": issues}
 
@@ -52,17 +53,37 @@ def _validate_note(
     path_lookup: dict[str, dict[str, Any]],
     stem_lookup: dict[str, list[dict[str, Any]]],
     title_lookup: dict[str, list[dict[str, Any]]],
+    profile: dict[str, Any],
 ) -> list[dict[str, str]]:
     issues: list[dict[str, str]] = []
     path = note["path"]
     metadata = note["metadata"]
     note_type = note["note_type"]
+    is_managed = bool(note.get("is_managed"))
 
-    for parse_issue in note.get("parse_issues", []):
-        issues.append(_issue(path, "frontmatter_parse", parse_issue))
+    if is_managed:
+        for parse_issue in note.get("parse_issues", []):
+            issues.append(_issue(path, "frontmatter_parse", parse_issue))
+
+    if not note_type:
+        return issues
 
     if note_type not in MANAGED_TYPES:
         issues.append(_issue(path, "unknown_type", f"Unknown note type: {note_type!r}"))
+        return issues
+
+    if not is_managed:
+        issues.extend(_validate_links(note, path_lookup, stem_lookup, title_lookup))
+        return issues
+
+    if _is_legacy_minimal_managed(note):
+        for field in LEGACY_MINIMAL_FIELDS | LEGACY_MINIMAL_TYPE_FIELDS.get(note_type, set()):
+            if field not in metadata:
+                issues.append(_issue(path, "missing_field", f"Missing field: {field}"))
+        issues.extend(_validate_path(path, note_type, str(note.get("note_kind", "")), profile))
+        if "source_refs" in metadata:
+            issues.extend(_validate_source_refs(note))
+        issues.extend(_validate_links(note, path_lookup, stem_lookup, title_lookup))
         return issues
 
     for field in COMMON_FIELDS | TYPE_FIELDS.get(note_type, set()):
@@ -73,7 +94,7 @@ def _validate_note(
         if section not in note["sections"]:
             issues.append(_issue(path, "missing_section", f"Missing section: {section}"))
 
-    issues.extend(_validate_path(path, note_type))
+    issues.extend(_validate_path(path, note_type, str(note.get("note_kind", "")), profile))
     issues.extend(_validate_source_refs(note))
     issues.extend(_validate_claims(note))
     issues.extend(_validate_links(note, path_lookup, stem_lookup, title_lookup))
@@ -81,26 +102,10 @@ def _validate_note(
     return issues
 
 
-def _validate_path(path: str, note_type: str) -> list[dict[str, str]]:
+def _validate_path(path: str, note_type: str, note_kind: str, profile: dict[str, Any]) -> list[dict[str, str]]:
     issues: list[dict[str, str]] = []
-    if note_type == "source":
-        if not SOURCE_FILE_RE.match(path):
-            issues.append(_issue(path, "path_mismatch", "Source note path does not match the contract"))
-    elif note_type == "conversation":
-        if not CONVERSATION_FILE_RE.match(path):
-            issues.append(_issue(path, "path_mismatch", "Conversation note path does not match the contract"))
-    elif note_type == "entity":
-        if not path.startswith(ENTITY_DIR) or not CANONICAL_FILE_RE.match(Path(path).name):
-            issues.append(_issue(path, "path_mismatch", "Entity note path does not match the contract"))
-    elif note_type == "concept":
-        if not path.startswith(CONCEPT_DIR) or not CANONICAL_FILE_RE.match(Path(path).name):
-            issues.append(_issue(path, "path_mismatch", "Concept note path does not match the contract"))
-    elif note_type == "topic":
-        if not path.startswith(TOPIC_DIR) or not CANONICAL_FILE_RE.match(Path(path).name):
-            issues.append(_issue(path, "path_mismatch", "Topic note path does not match the contract"))
-    elif note_type == "unresolved":
-        if not UNRESOLVED_FILE_RE.match(path):
-            issues.append(_issue(path, "path_mismatch", "Unresolved note path does not match the contract"))
+    if not matches_profile_path(path=path, note_type=note_type, note_kind=note_kind, profile=profile):
+        issues.append(_issue(path, "path_mismatch", "Managed note path does not match the active vault profile"))
     return issues
 
 
@@ -203,3 +208,7 @@ def _issue(path: str, code: str, message: str) -> dict[str, str]:
 def _normalize(value: str) -> str:
     return value.strip().lower()
 
+
+def _is_legacy_minimal_managed(note: dict[str, Any]) -> bool:
+    metadata = note.get("metadata", {})
+    return str(metadata.get("managed_format", "")).strip() == "legacy_minimal"

@@ -58,6 +58,40 @@ Recommended sections:
 
 These notes are working memory for later repair or evaluation. They are not canonical knowledge nodes.
 
+## Legacy Note Adoption Policy
+
+When AutoKnowledge matches an existing human-maintained canonical note in a real vault, the default adoption mode is conservative.
+
+For legacy notes with missing or non-AutoKnowledge frontmatter:
+
+- preserve the existing markdown body as-is
+- do not rewrite the note into the full canonical section template
+- prepend only a minimal ownership and identity frontmatter block
+- mark the note with `managed_format: "legacy_minimal"`
+
+Minimal legacy-managed frontmatter should include:
+
+```yaml
+id: "ent_..."
+type: "entity"
+title: "Mars"
+managed_by: "autoknowledge"
+schema_version: 1
+managed_format: "legacy_minimal"
+canonical_slug: "mars"
+entity_kind: "company"
+```
+
+Optional identity fields such as `aliases` may be added when they are stable and low-churn.
+
+In `legacy_minimal` mode, the system should avoid adding:
+
+- full canonical sections such as `## Claims` and `## Relationships`
+- lifecycle timestamps such as `created_at` and `updated_at`
+- `source_refs` frontmatter unless there is a specific reason to persist them
+
+This mode is intended to claim stable ownership and routing identity without forcing a YAML-heavy migration on an existing personal vault.
+
 ## Contradiction Policy
 
 When two sourced claims disagree:

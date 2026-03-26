@@ -1,0 +1,80 @@
+{
+  "profiles": {
+    "canonical_managed": {
+      "managed_by": "autoknowledge",
+      "apply_policy": {
+        "enforce_managed_write_roots": true,
+        "require_backup_on_existing_write": false
+      },
+      "source_roots": {
+        "source": "sources/files",
+        "conversation": "sources/conversations"
+      },
+      "canonical_roots": {
+        "entity": "entities",
+        "concept": "concepts",
+        "topic": "topics",
+        "unresolved": "inbox/unresolved"
+      },
+      "entity_kind_dirs": {},
+      "entity_kind_aliases": {},
+      "default_entity_dir": "entities",
+      "filename_policy": {
+        "entity": "slug",
+        "concept": "slug",
+        "topic": "slug",
+        "unresolved": "dated_slug"
+      },
+      "legacy_rules": []
+    },
+    "obsidian_albert": {
+      "extends": "canonical_managed",
+      "apply_policy": {
+        "enforce_managed_write_roots": true,
+        "require_backup_on_existing_write": true
+      },
+      "ingest_policy": {
+        "allow_existing_people_updates": false
+      },
+      "canonical_roots": {
+        "entity": "400 Entities",
+        "unresolved": "400 Entities/unresolved"
+      },
+      "entity_kind_dirs": {
+        "person": "400 Entities/people",
+        "company": "400 Entities/companies",
+        "offer": "400 Entities/offers",
+        "project": "400 Entities/projects",
+        "source": "400 Entities/sources"
+      },
+      "entity_kind_write_dirs": {
+        "person": "400 Entities/people/_autoknowledge"
+      },
+      "entity_kind_aliases": {
+        "people": "person",
+        "companies": "company",
+        "offers": "offer",
+        "projects": "project",
+        "sources": "source"
+      },
+      "self_reference_names": [
+        "Albert",
+        "Albert Hupa"
+      ],
+      "default_entity_dir": "400 Entities/unresolved",
+      "filename_policy": {
+        "entity": "title",
+        "concept": "slug",
+        "topic": "slug",
+        "unresolved": "dated_slug"
+      },
+      "legacy_rules": [
+        {
+          "prefix": "400 Entities",
+          "note_type": "entity",
+          "entity_kind_from_first_segment": true
+        }
+      ]
+    }
+  }
+}

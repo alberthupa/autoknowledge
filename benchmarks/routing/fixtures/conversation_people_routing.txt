@@ -1,0 +1,2 @@
+2026-03-20T10:00:00Z | Alisher Mardanov: Mars is evaluating Gemini.
+2026-03-20T10:01:00Z | Cameron Legan: Databricks can support Mars.

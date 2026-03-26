@@ -1,0 +1,86 @@
+{
+  "suite_name": "vault_profile_routing_regressions",
+  "cases": [
+    {
+      "id": "obsidian_file_company_source_routing",
+      "input_kind": "file",
+      "input_path": "./fixtures/company_source_routing.md",
+      "profile": "deterministic_conservative",
+      "vault_profile": "obsidian_albert",
+      "expect": {
+        "outcome": "success",
+        "hard_constraint_issue_count_max": 0,
+        "broken_link_count_max": 0,
+        "expected_create_paths_all": [
+          "400 Entities/companies/Mars.md",
+          "400 Entities/companies/Mondelez.md",
+          "400 Entities/sources/Newsletters.md",
+          "400 Entities/unresolved/Director Global.md"
+        ],
+        "forbidden_create_paths_all": [
+          "400 Entities/people/Mars.md",
+          "400 Entities/sources/Mars.md",
+          "400 Entities/people/Mondelez.md",
+          "400 Entities/companies/Newsletters.md",
+          "400 Entities/people/Director Global.md"
+        ]
+      }
+    },
+    {
+      "id": "obsidian_conversation_people_routing",
+      "input_kind": "conversation",
+      "input_path": "./fixtures/conversation_people_routing.txt",
+      "profile": "deterministic_conservative",
+      "vault_profile": "obsidian_albert",
+      "expect": {
+        "outcome": "success",
+        "hard_constraint_issue_count_max": 0,
+        "broken_link_count_max": 0,
+        "expected_create_paths_all": [
+          "400 Entities/people/Alisher Mardanov.md",
+          "400 Entities/people/Cameron Legan.md"
+        ],
+        "forbidden_create_paths_all": [
+          "400 Entities/companies/Alisher Mardanov.md",
+          "400 Entities/companies/Cameron Legan.md",
+          "400 Entities/sources/Alisher Mardanov.md"
+        ]
+      }
+    },
+    {
+      "id": "obsidian_legacy_note_minimal_adoption",
+      "input_kind": "file",
+      "input_path": "./fixtures/legacy_mars_update.md",
+      "title": "Legacy Mars Update",
+      "vault_seed_dir": "./fixtures/legacy_vault",
+      "profile": "deterministic_conservative",
+      "vault_profile": "obsidian_albert",
+      "expect": {
+        "outcome": "success",
+        "hard_constraint_issue_count_max": 0,
+        "broken_link_count_max": 0,
+        "expected_update_paths_all": [
+          "400 Entities/companies/Mars.md"
+        ],
+        "expected_note_substrings_all": {
+          "400 Entities/companies/Mars.md": [
+            "managed_by: \"autoknowledge\"",
+            "managed_format: \"legacy_minimal\"",
+            "canonical_slug: \"mars\"",
+            "entity_kind: \"company\"",
+            "#gemini_enterprise"
+          ]
+        },
+        "forbidden_note_substrings_all": {
+          "400 Entities/companies/Mars.md": [
+            "created_at:",
+            "updated_at:",
+            "## Claims",
+            "## Relationships",
+            "## Open Questions"
+          ]
+        }
+      }
+    }
+  ]
+}

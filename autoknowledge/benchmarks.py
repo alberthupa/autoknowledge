@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 import tempfile
 from pathlib import Path
 from typing import Any
@@ -15,10 +16,23 @@ from .metrics import compute_metrics
 from .retrieval_qa import run_question_set
 
 
+def _make_workspace(*, prefix: str, keep_workdirs: bool) -> tuple[Path, Any]:
+    if keep_workdirs:
+        root = Path(tempfile.mkdtemp(prefix=prefix))
+
+        def _cleanup() -> None:
+            return None
+
+        return root, _cleanup
+    workspace = tempfile.TemporaryDirectory(prefix=prefix)
+    return Path(workspace.name), workspace.cleanup
+
+
 def run_benchmark_manifest(
     manifest_path: Path,
     *,
     profile_name: str | None = None,
+    vault_profile_name: str | None = None,
     model_override: str | None = None,
     config_root: Path | None = None,
     keep_workdirs: bool = False,
@@ -32,6 +46,7 @@ def run_benchmark_manifest(
             case=case,
             manifest_dir=manifest_dir,
             profile_name=profile_name,
+            vault_profile_name=vault_profile_name,
             model_override=model_override,
             config_root=config_root,
             keep_workdirs=keep_workdirs,
@@ -56,6 +71,7 @@ def _run_benchmark_case(
     case: dict[str, Any],
     manifest_dir: Path,
     profile_name: str | None,
+    vault_profile_name: str | None,
     model_override: str | None,
     config_root: Path | None,
     keep_workdirs: bool,
@@ -66,6 +82,7 @@ def _run_benchmark_case(
             case=case,
             manifest_dir=manifest_dir,
             profile_name=profile_name,
+            vault_profile_name=vault_profile_name,
             model_override=model_override,
             config_root=config_root,
             keep_workdirs=keep_workdirs,
@@ -75,6 +92,7 @@ def _run_benchmark_case(
             case=case,
             manifest_dir=manifest_dir,
             profile_name=profile_name,
+            vault_profile_name=vault_profile_name,
             model_override=model_override,
             config_root=config_root,
             keep_workdirs=keep_workdirs,
@@ -83,6 +101,7 @@ def _run_benchmark_case(
         case=case,
         manifest_dir=manifest_dir,
         profile_name=profile_name,
+        vault_profile_name=vault_profile_name,
         model_override=model_override,
         config_root=config_root,
         keep_workdirs=keep_workdirs,
@@ -94,6 +113,7 @@ def _run_single_benchmark_case(
     case: dict[str, Any],
     manifest_dir: Path,
     profile_name: str | None,
+    vault_profile_name: str | None,
     model_override: str | None,
     config_root: Path | None,
     keep_workdirs: bool,
@@ -102,32 +122,50 @@ def _run_single_benchmark_case(
     input_kind = str(case.get("input_kind", "file"))
     expectations = dict(case.get("expect", {}))
     effective_profile = profile_name or case.get("profile")
+    effective_vault_profile = vault_profile_name or case.get("vault_profile")
     effective_model = model_override or case.get("model")
     input_path = _resolve_case_input_path(case=case, manifest_dir=manifest_dir)
 
-    workspace = tempfile.TemporaryDirectory(prefix=f"autoknowledge_benchmark_{case_id}_")
-    vault_root = Path(workspace.name) / "vault"
+    workspace_root, cleanup_workspace = _make_workspace(
+        prefix=f"autoknowledge_benchmark_{case_id}_",
+        keep_workdirs=keep_workdirs,
+    )
+    vault_root = workspace_root / "vault"
     actual: dict[str, Any] = {}
     failures: list[str] = []
 
     try:
         try:
+            _prepare_case_vault(vault_root=vault_root, case=case, manifest_dir=manifest_dir)
             plan = _build_case_plan(
                 input_kind=input_kind,
                 vault_root=vault_root,
                 input_path=input_path,
                 profile_name=effective_profile,
+                vault_profile_name=effective_vault_profile,
                 model_override=effective_model,
                 config_root=config_root,
                 case=case,
             )
-            apply_result = apply_ingestion_plan(vault_root, plan)
-            index = index_vault(vault_root)
-            integrity = validate_index(index)
+            apply_result = apply_ingestion_plan(
+                vault_root,
+                plan,
+                vault_profile_name=effective_vault_profile,
+                config_root=config_root,
+                backup_dir=workspace_root / "backups",
+            )
+            index = index_vault(vault_root, vault_profile_name=effective_vault_profile, config_root=config_root)
+            integrity = validate_index(index, vault_profile_name=effective_vault_profile, config_root=config_root)
             metrics = compute_metrics(index, integrity)
             actual = {
                 "plan_stats": plan.stats,
                 "apply": apply_result,
+                "operation_paths": [item.path for item in plan.operations],
+                "create_paths": [item.path for item in plan.operations if item.action == "create"],
+                "update_paths": [item.path for item in plan.operations if item.action == "update"],
+                "noop_paths": [item.path for item in plan.operations if item.action == "noop"],
+                "note_paths": sorted(index.get("by_path", {})),
+                "note_texts": _collect_expected_note_texts(vault_root=vault_root, expectations=expectations),
                 "integrity": integrity,
                 "metrics": metrics,
             }
@@ -139,12 +177,19 @@ def _run_single_benchmark_case(
                     vault_root=vault_root,
                     input_path=input_path,
                     profile_name=effective_profile,
+                    vault_profile_name=effective_vault_profile,
                     model_override=effective_model,
                     config_root=config_root,
                     case=case,
                 )
-                reingest_apply = apply_ingestion_plan(vault_root, reingest_plan)
-                after_reingest_index = index_vault(vault_root)
+                reingest_apply = apply_ingestion_plan(
+                    vault_root,
+                    reingest_plan,
+                    vault_profile_name=effective_vault_profile,
+                    config_root=config_root,
+                    backup_dir=workspace_root / "backups",
+                )
+                after_reingest_index = index_vault(vault_root, vault_profile_name=effective_vault_profile, config_root=config_root)
                 actual["reingest_stats"] = reingest_plan.stats
                 actual["reingest_apply"] = reingest_apply
                 actual["reingest_operations"] = {
@@ -167,17 +212,17 @@ def _run_single_benchmark_case(
             "input_kind": input_kind,
             "input_path": str(input_path),
             "profile": effective_profile,
+            "vault_profile": effective_vault_profile,
             "model": effective_model,
             "passed": not failures,
             "failures": failures,
             "actual": actual,
         }
         if keep_workdirs:
-            result["workspace"] = workspace.name
+            result["workspace"] = str(workspace_root)
         return result
     finally:
-        if not keep_workdirs:
-            workspace.cleanup()
+        cleanup_workspace()
 
 
 def _run_metamorphic_case(
@@ -185,13 +230,16 @@ def _run_metamorphic_case(
     case: dict[str, Any],
     manifest_dir: Path,
     profile_name: str | None,
+    vault_profile_name: str | None,
     model_override: str | None,
     config_root: Path | None,
     keep_workdirs: bool,
 ) -> dict[str, Any]:
     case_id = str(case.get("id", "unknown_metamorphic_case"))
-    workspace = tempfile.TemporaryDirectory(prefix=f"autoknowledge_metamorphic_{case_id}_")
-    root = Path(workspace.name)
+    root, cleanup_workspace = _make_workspace(
+        prefix=f"autoknowledge_metamorphic_{case_id}_",
+        keep_workdirs=keep_workdirs,
+    )
     variant_a = dict(case.get("baseline", {}))
     variant_b = dict(case.get("transformed", {}))
     expectations = dict(case.get("expect", {}))
@@ -208,6 +256,7 @@ def _run_metamorphic_case(
                 variant_root=root / "baseline",
                 manifest_dir=manifest_dir,
                 profile_name=profile_name,
+                vault_profile_name=vault_profile_name,
                 model_override=model_override,
                 config_root=config_root,
             )
@@ -218,6 +267,7 @@ def _run_metamorphic_case(
                 variant_root=root / "transformed",
                 manifest_dir=manifest_dir,
                 profile_name=profile_name,
+                vault_profile_name=vault_profile_name,
                 model_override=model_override,
                 config_root=config_root,
             )
@@ -256,11 +306,10 @@ def _run_metamorphic_case(
             "actual": actual,
         }
         if keep_workdirs:
-            result["workspace"] = workspace.name
+            result["workspace"] = str(root)
         return result
     finally:
-        if not keep_workdirs:
-            workspace.cleanup()
+        cleanup_workspace()
 
 
 def _run_retrieval_qa_case(
@@ -268,6 +317,7 @@ def _run_retrieval_qa_case(
     case: dict[str, Any],
     manifest_dir: Path,
     profile_name: str | None,
+    vault_profile_name: str | None,
     model_override: str | None,
     config_root: Path | None,
     keep_workdirs: bool,
@@ -276,28 +326,40 @@ def _run_retrieval_qa_case(
     input_kind = str(case.get("input_kind", "file"))
     expectations = dict(case.get("expect", {}))
     effective_profile = profile_name or case.get("profile")
+    effective_vault_profile = vault_profile_name or case.get("vault_profile")
     effective_model = model_override or case.get("model")
     input_path = _resolve_case_input_path(case=case, manifest_dir=manifest_dir)
 
-    workspace = tempfile.TemporaryDirectory(prefix=f"autoknowledge_retrieval_{case_id}_")
-    vault_root = Path(workspace.name) / "vault"
+    workspace_root, cleanup_workspace = _make_workspace(
+        prefix=f"autoknowledge_retrieval_{case_id}_",
+        keep_workdirs=keep_workdirs,
+    )
+    vault_root = workspace_root / "vault"
     actual: dict[str, Any] = {}
     failures: list[str] = []
 
     try:
         try:
+            _prepare_case_vault(vault_root=vault_root, case=case, manifest_dir=manifest_dir)
             plan = _build_case_plan(
                 input_kind=input_kind,
                 vault_root=vault_root,
                 input_path=input_path,
                 profile_name=effective_profile,
+                vault_profile_name=effective_vault_profile,
                 model_override=effective_model,
                 config_root=config_root,
                 case=case,
             )
-            apply_result = apply_ingestion_plan(vault_root, plan)
-            index = index_vault(vault_root)
-            integrity = validate_index(index)
+            apply_result = apply_ingestion_plan(
+                vault_root,
+                plan,
+                vault_profile_name=effective_vault_profile,
+                config_root=config_root,
+                backup_dir=workspace_root / "backups",
+            )
+            index = index_vault(vault_root, vault_profile_name=effective_vault_profile, config_root=config_root)
+            integrity = validate_index(index, vault_profile_name=effective_vault_profile, config_root=config_root)
             metrics = compute_metrics(index, integrity)
             qa = run_question_set(
                 index,
@@ -308,6 +370,12 @@ def _run_retrieval_qa_case(
             actual = {
                 "plan_stats": plan.stats,
                 "apply": apply_result,
+                "operation_paths": [item.path for item in plan.operations],
+                "create_paths": [item.path for item in plan.operations if item.action == "create"],
+                "update_paths": [item.path for item in plan.operations if item.action == "update"],
+                "noop_paths": [item.path for item in plan.operations if item.action == "noop"],
+                "note_paths": sorted(index.get("by_path", {})),
+                "note_texts": _collect_expected_note_texts(vault_root=vault_root, expectations=expectations),
                 "integrity": integrity,
                 "metrics": metrics,
                 "qa": qa,
@@ -323,17 +391,17 @@ def _run_retrieval_qa_case(
             "input_kind": input_kind,
             "input_path": str(input_path),
             "profile": effective_profile,
+            "vault_profile": effective_vault_profile,
             "model": effective_model,
             "passed": not failures,
             "failures": failures,
             "actual": actual,
         }
         if keep_workdirs:
-            result["workspace"] = workspace.name
+            result["workspace"] = str(workspace_root)
         return result
     finally:
-        if not keep_workdirs:
-            workspace.cleanup()
+        cleanup_workspace()
 
 
 def _run_variant(
@@ -344,6 +412,7 @@ def _run_variant(
     variant_root: Path,
     manifest_dir: Path,
     profile_name: str | None,
+    vault_profile_name: str | None,
     model_override: str | None,
     config_root: Path | None,
 ) -> dict[str, Any]:
@@ -351,6 +420,7 @@ def _run_variant(
     input_ref = variant.get("input_path") or case.get("input_path")
     input_path = (manifest_dir / str(input_ref or "")).resolve()
     effective_profile = profile_name or variant.get("profile") or case.get("profile")
+    effective_vault_profile = vault_profile_name or variant.get("vault_profile") or case.get("vault_profile")
     effective_model = model_override or variant.get("model") or case.get("model")
     transformed_input_path = _prepare_variant_input(
         input_kind=input_kind,
@@ -364,19 +434,27 @@ def _run_variant(
         vault_root=vault_root,
         input_path=transformed_input_path,
         profile_name=effective_profile,
+        vault_profile_name=effective_vault_profile,
         model_override=effective_model,
         config_root=config_root,
         case={**case, **variant},
     )
-    apply_result = apply_ingestion_plan(vault_root, plan)
-    index = index_vault(vault_root)
-    integrity = validate_index(index)
+    apply_result = apply_ingestion_plan(
+        vault_root,
+        plan,
+        vault_profile_name=effective_vault_profile,
+        config_root=config_root,
+        backup_dir=variant_root / "backups",
+    )
+    index = index_vault(vault_root, vault_profile_name=effective_vault_profile, config_root=config_root)
+    integrity = validate_index(index, vault_profile_name=effective_vault_profile, config_root=config_root)
     metrics = compute_metrics(index, integrity)
     return {
         "variant_name": variant_name,
         "input_kind": input_kind,
         "input_path": str(transformed_input_path),
         "profile": effective_profile,
+        "vault_profile": effective_vault_profile,
         "model": effective_model,
         "apply": apply_result,
         "index": index,
@@ -392,6 +470,7 @@ def _public_variant_result(result: dict[str, Any]) -> dict[str, Any]:
         "input_kind": result["input_kind"],
         "input_path": result["input_path"],
         "profile": result["profile"],
+        "vault_profile": result.get("vault_profile"),
         "model": result["model"],
         "apply": result["apply"],
         "integrity": result["integrity"],
@@ -406,6 +485,7 @@ def _build_case_plan(
     vault_root: Path,
     input_path: Path,
     profile_name: str | None,
+    vault_profile_name: str | None,
     model_override: str | None,
     config_root: Path | None,
     case: dict[str, Any],
@@ -417,6 +497,7 @@ def _build_case_plan(
             origin=case.get("origin"),
             title=case.get("title"),
             profile_name=profile_name,
+            vault_profile_name=vault_profile_name,
             model_override=model_override,
             config_root=config_root,
         )
@@ -428,6 +509,7 @@ def _build_case_plan(
             title=case.get("title"),
             channel=case.get("channel"),
             profile_name=profile_name,
+            vault_profile_name=vault_profile_name,
             model_override=model_override,
             config_root=config_root,
         )
@@ -436,6 +518,16 @@ def _build_case_plan(
 
 def _resolve_case_input_path(*, case: dict[str, Any], manifest_dir: Path) -> Path:
     return (manifest_dir / str(case.get("input_path", ""))).resolve()
+
+
+def _prepare_case_vault(*, vault_root: Path, case: dict[str, Any], manifest_dir: Path) -> None:
+    seed_ref = str(case.get("vault_seed_dir", "")).strip()
+    if not seed_ref:
+        return
+    seed_root = (manifest_dir / seed_ref).resolve()
+    if not seed_root.exists():
+        raise ValueError(f"Benchmark vault seed dir not found: {seed_root}")
+    shutil.copytree(seed_root, vault_root, dirs_exist_ok=True)
 
 
 def _prepare_variant_input(
@@ -513,6 +605,56 @@ def _evaluate_case(*, expectations: dict[str, Any], actual: dict[str, Any]) -> l
     _check_max(failures, integrity, "issue_count", expectations.get("integrity_issue_count_max"))
     _check_bool(failures, plan_stats, "windowed", expectations.get("windowed"))
     _check_min(failures, plan_stats, "window_count", expectations.get("window_count_min"))
+    _check_contains_all(failures, actual.get("note_paths", []), expectations.get("expected_note_paths_all"), "note_paths")
+    _check_contains_any(failures, actual.get("note_paths", []), expectations.get("expected_note_paths_any"), "note_paths")
+    _check_contains_all(
+        failures,
+        actual.get("create_paths", []),
+        expectations.get("expected_create_paths_all"),
+        "create_paths",
+    )
+    _check_contains_any(
+        failures,
+        actual.get("create_paths", []),
+        expectations.get("expected_create_paths_any"),
+        "create_paths",
+    )
+    _check_contains_all(
+        failures,
+        actual.get("update_paths", []),
+        expectations.get("expected_update_paths_all"),
+        "update_paths",
+    )
+    _check_contains_any(
+        failures,
+        actual.get("update_paths", []),
+        expectations.get("expected_update_paths_any"),
+        "update_paths",
+    )
+    _check_contains_none(
+        failures,
+        actual.get("note_paths", []),
+        expectations.get("forbidden_note_paths_all"),
+        "note_paths",
+    )
+    _check_contains_none(
+        failures,
+        actual.get("create_paths", []),
+        expectations.get("forbidden_create_paths_all"),
+        "create_paths",
+    )
+    _check_note_substrings(
+        failures,
+        actual.get("note_texts", {}),
+        expectations.get("expected_note_substrings_all"),
+        expect_present=True,
+    )
+    _check_note_substrings(
+        failures,
+        actual.get("note_texts", {}),
+        expectations.get("forbidden_note_substrings_all"),
+        expect_present=False,
+    )
 
     if expectations.get("reingest_noop"):
         if not reingest_stats:
@@ -621,3 +763,66 @@ def _check_max_abs(failures: list[str], values: dict[str, Any], key: str, expect
     actual = values.get(key)
     if actual is None or abs(float(actual)) > float(expected):
         failures.append(f"expected abs({key}) <= {expected}, got {actual}")
+
+
+def _check_contains_all(failures: list[str], values: Any, expected: Any, label: str) -> None:
+    if expected is None:
+        return
+    actual_values = {str(item) for item in list(values or [])}
+    missing = [str(item) for item in list(expected) if str(item) not in actual_values]
+    if missing:
+        failures.append(f"expected {label} to contain all of {missing}, got {sorted(actual_values)}")
+
+
+def _check_contains_any(failures: list[str], values: Any, expected: Any, label: str) -> None:
+    if expected is None:
+        return
+    actual_values = {str(item) for item in list(values or [])}
+    wanted = [str(item) for item in list(expected)]
+    if not any(item in actual_values for item in wanted):
+        failures.append(f"expected {label} to contain any of {wanted}, got {sorted(actual_values)}")
+
+
+def _check_contains_none(failures: list[str], values: Any, expected: Any, label: str) -> None:
+    if expected is None:
+        return
+    actual_values = {str(item) for item in list(values or [])}
+    present = [str(item) for item in list(expected) if str(item) in actual_values]
+    if present:
+        failures.append(f"expected {label} to contain none of {present}, got {sorted(actual_values)}")
+
+
+def _check_note_substrings(
+    failures: list[str],
+    note_texts: Any,
+    expected: Any,
+    *,
+    expect_present: bool,
+) -> None:
+    if expected is None:
+        return
+    texts = {str(path): str(text) for path, text in dict(note_texts or {}).items()}
+    for path, snippets in dict(expected).items():
+        text = texts.get(str(path))
+        if text is None:
+            failures.append(f"expected note text for {path}, but it was not collected")
+            continue
+        for snippet in list(snippets or []):
+            present = str(snippet) in text
+            if expect_present and not present:
+                failures.append(f"expected note {path} to contain {snippet!r}")
+            if not expect_present and present:
+                failures.append(f"expected note {path} to not contain {snippet!r}")
+
+
+def _collect_expected_note_texts(*, vault_root: Path, expectations: dict[str, Any]) -> dict[str, str]:
+    paths: set[str] = set()
+    for key in ("expected_note_substrings_all", "forbidden_note_substrings_all"):
+        for path in dict(expectations.get(key, {})).keys():
+            paths.add(str(path))
+    note_texts: dict[str, str] = {}
+    for rel_path in sorted(paths):
+        note_path = vault_root / rel_path
+        if note_path.exists():
+            note_texts[rel_path] = note_path.read_text(encoding="utf-8")
+    return note_texts

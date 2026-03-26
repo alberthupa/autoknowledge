@@ -15,7 +15,22 @@ from .indexer import index_vault
 from .markdown import split_sections
 from .providers import extract_with_provider
 from .runtime_config import resolve_profile
-from .utils import date_prefix_from_iso, slugify, stable_short_hash, title_from_path, utc_now_iso, year_from_date
+from .utils import (
+    date_prefix_from_iso,
+    identity_slug_variants,
+    slugify,
+    stable_short_hash,
+    title_from_path,
+    utc_now_iso,
+    year_from_date,
+)
+from .vault_profiles import (
+    build_candidate_note_path,
+    build_source_note_path,
+    managed_write_roots,
+    normalize_entity_kind,
+    resolve_vault_profile,
+)
 
 STOPWORDS = {
     "about",
@@ -62,6 +77,8 @@ CONVERSATION_LINE_RE = re.compile(
     r"^\s*(?:(?P<ts>\d{4}-\d{2}-\d{2}T[0-9:.+-Z]+)\s*\|\s*)?(?P<speaker>[^:|]+?)\s*:\s*(?P<message>.+?)\s*$"
 )
 LOW_SIGNAL_TITLE_RE = re.compile(r"^(?:[a-z]|[a-z]\s+unresolved|diagram node [a-z])$", re.IGNORECASE)
+PRESENTED_BY_FRAGMENT_RE = re.compile(r"\bPresented by [A-Z][A-Za-z]+(?:\s+[A-Z][A-Za-z.]+){0,3}\s+\d+\b")
+TIMESTAMP_FRAGMENT_RE = re.compile(r"(?<=\.)\d{2}:\d{2}\s*\.\s*")
 LOW_INFORMATION_BLOCK_MARKERS = (
     "appendix",
     "boilerplate",
@@ -74,6 +91,88 @@ LOW_INFORMATION_BLOCK_MARKERS = (
     "marker",
     "unrelated archival",
 )
+PERSON_ROLE_CUES = (
+    "director",
+    "manager",
+    "lead",
+    "stakeholder",
+    "owner",
+    "speaker",
+    "founder",
+    "president",
+    "vp",
+    "head of",
+    "works at",
+    "works for",
+    "says",
+    "said",
+    "guy from",
+)
+COMPANY_SUFFIXES = {"inc", "llc", "ltd", "corp", "co", "gmbh", "sa", "plc"}
+SOURCE_KIND_KEYWORDS = {"newsletter", "newsletters", "podcast", "podcasts", "source", "sources", "web source", "feed"}
+OFFER_KIND_KEYWORDS = {"offer", "proposal", "pitch", "sow", "statement of work"}
+PROJECT_KIND_KEYWORDS = {
+    "project",
+    "program",
+    "initiative",
+    "workshop",
+    "workshops",
+    "trader",
+    "cockpit",
+    "migration",
+    "rollout",
+    "implementation",
+    "platform",
+    "agent",
+    "agents",
+}
+PERSON_NAME_REJECT_TOKENS = {
+    "director",
+    "manager",
+    "lead",
+    "stakeholder",
+    "owner",
+    "founder",
+    "president",
+    "global",
+    "strategy",
+    "brief",
+    "overview",
+    "meeting",
+    "notes",
+    "update",
+    "team",
+}
+GENERIC_ENTITY_REJECT_TOKENS = {
+    "backbone",
+    "collapse",
+    "core",
+    "development",
+    "existing",
+    "parallel",
+    "rationale",
+    "reusable",
+    "service",
+    "strategic",
+    "systems",
+    "transition",
+    "vision",
+}
+GENERIC_CONCEPT_REJECT_TOKENS = {
+    "data",
+    "governance",
+    "semantic",
+}
+GENERIC_PROJECT_FRAGMENT_TOKENS = {
+    "architecture",
+    "core",
+    "engine",
+    "framework",
+    "platform",
+    "service",
+    "system",
+    "workflow",
+}
 
 
 @dataclass
@@ -111,6 +210,7 @@ class NoteCandidate:
     relationships: list[Relationship] = field(default_factory=list)
     note_id: str | None = None
     kind: str | None = None
+    entity_kind: str | None = None
 
 
 @dataclass
@@ -196,7 +296,9 @@ def ingest_file(
     origin: str | None = None,
     title: str | None = None,
     profile_name: str | None = None,
+    vault_profile_name: str | None = None,
     model_override: str | None = None,
+    allow_existing_people_updates: bool | None = None,
     config_root: Path | None = None,
 ) -> IngestionPlan:
     input_text = input_path.read_text(encoding="utf-8")
@@ -210,14 +312,21 @@ def ingest_file(
         model_override=model_override,
         config_root=config_root,
     )
+    vault_profile = resolve_vault_profile(profile_name=vault_profile_name, config_root=config_root)
     date_value = utc_now_iso()[:10]
     source_hash = stable_short_hash(str(input_path.resolve()), input_text, length=16)
     source_id = f"src_{source_hash[:8]}"
-    slug = slugify(title)
-    rel_path = f"sources/files/{year_from_date(date_value)}/{date_value}--{slug}--{source_id}.md"
+    rel_path = build_source_note_path(
+        note_type="source",
+        title=title,
+        note_id=source_id,
+        date_value=date_value,
+        profile=vault_profile,
+    )
 
-    evidence_blocks = _make_file_evidence_blocks(rel_path, input_text)
-    source_refs = [block.source_ref for block in evidence_blocks]
+    raw_evidence_blocks = _make_file_evidence_blocks(rel_path, input_text)
+    extraction_evidence_blocks = _prepare_file_evidence_blocks_for_extraction(raw_evidence_blocks) or raw_evidence_blocks
+    source_refs = [block.source_ref for block in raw_evidence_blocks]
     source_note = SourceNotePlan(
         note_id=source_id,
         note_type="source",
@@ -247,7 +356,7 @@ def ingest_file(
         },
         content="",
     )
-    source_note.content = render_source_note(source_note, evidence_blocks)
+    source_note.content = render_source_note(source_note, raw_evidence_blocks)
     same_source_reingest = _existing_source_note_matches_hash(
         vault_root=vault_root,
         path=rel_path,
@@ -255,24 +364,38 @@ def ingest_file(
     )
     payload = ExtractionPayload(
         source_note=source_note,
-        evidence_blocks=evidence_blocks,
+        evidence_blocks=raw_evidence_blocks,
         note_candidates=[],
         unresolved_candidates=[],
         stats={
             "input_kind": "file",
-            "evidence_block_count": len(evidence_blocks),
+            "evidence_block_count": len(extraction_evidence_blocks),
+            "raw_evidence_block_count": len(raw_evidence_blocks),
             "extractor_profile": profile["name"],
             "extractor_backend": profile.get("backend"),
             "extractor_model": profile.get("model"),
         },
     )
     note_candidates, unresolved_candidates, extraction_stats = _extract_file_candidates(
-        vault_root, title, rel_path, evidence_blocks, input_text, profile, same_source_reingest
+        vault_root,
+        title,
+        rel_path,
+        extraction_evidence_blocks,
+        _window_text(extraction_evidence_blocks),
+        profile,
+        vault_profile,
+        same_source_reingest,
     )
     payload.note_candidates = note_candidates
     payload.unresolved_candidates = unresolved_candidates
     payload.stats.update(extraction_stats)
-    return build_ingestion_plan(vault_root=vault_root, payload=payload)
+    return build_ingestion_plan(
+        vault_root=vault_root,
+        payload=payload,
+        vault_profile=vault_profile,
+        allow_existing_people_updates=allow_existing_people_updates,
+        config_root=config_root,
+    )
 
 
 def ingest_conversation(
@@ -283,7 +406,9 @@ def ingest_conversation(
     title: str | None = None,
     channel: str | None = None,
     profile_name: str | None = None,
+    vault_profile_name: str | None = None,
     model_override: str | None = None,
+    allow_existing_people_updates: bool | None = None,
     config_root: Path | None = None,
 ) -> IngestionPlan:
     input_text = input_path.read_text(encoding="utf-8")
@@ -298,13 +423,19 @@ def ingest_conversation(
         model_override=model_override,
         config_root=config_root,
     )
+    vault_profile = resolve_vault_profile(profile_name=vault_profile_name, config_root=config_root)
     channel = channel or "default"
     timestamps = [message["timestamp"] for message in parsed_messages if message["timestamp"]]
     date_value = date_prefix_from_iso(timestamps[0] if timestamps else None)
     source_hash = stable_short_hash(str(input_path.resolve()), input_text, length=16)
     conv_id = f"conv_{source_hash[:8]}"
-    slug = slugify(title)
-    rel_path = f"sources/conversations/{year_from_date(date_value)}/{date_value}--{slug}--{conv_id}.md"
+    rel_path = build_source_note_path(
+        note_type="conversation",
+        title=title,
+        note_id=conv_id,
+        date_value=date_value,
+        profile=vault_profile,
+    )
 
     evidence_blocks = _make_conversation_evidence_blocks(rel_path, parsed_messages)
     source_refs = [block.source_ref for block in evidence_blocks]
@@ -360,17 +491,40 @@ def ingest_conversation(
         },
     )
     note_candidates, unresolved_candidates, extraction_stats = _extract_conversation_candidates(
-        vault_root, title, rel_path, evidence_blocks, parsed_messages, profile, same_source_reingest
+        vault_root, title, rel_path, evidence_blocks, parsed_messages, profile, vault_profile, same_source_reingest
     )
     payload.note_candidates = note_candidates
     payload.unresolved_candidates = unresolved_candidates
     payload.stats.update(extraction_stats)
-    return build_ingestion_plan(vault_root=vault_root, payload=payload)
+    return build_ingestion_plan(
+        vault_root=vault_root,
+        payload=payload,
+        vault_profile=vault_profile,
+        allow_existing_people_updates=allow_existing_people_updates,
+        config_root=config_root,
+    )
 
 
-def build_ingestion_plan(*, vault_root: Path, payload: ExtractionPayload) -> IngestionPlan:
-    existing_index = index_vault(vault_root) if vault_root.exists() else {"notes": [], "by_path": {}}
+def build_ingestion_plan(
+    *,
+    vault_root: Path,
+    payload: ExtractionPayload,
+    vault_profile: dict[str, Any] | None = None,
+    vault_profile_name: str | None = None,
+    allow_existing_people_updates: bool | None = None,
+    config_root: Path | None = None,
+) -> IngestionPlan:
+    vault_profile = vault_profile or resolve_vault_profile(profile_name=vault_profile_name, config_root=config_root)
+    ingest_policy = dict(vault_profile.get("ingest_policy", {}))
+    if allow_existing_people_updates is None:
+        allow_existing_people_updates = bool(ingest_policy.get("allow_existing_people_updates", True))
+    existing_index = (
+        index_vault(vault_root, vault_profile=vault_profile, config_root=config_root)
+        if vault_root.exists()
+        else {"notes": [], "by_path": {}}
+    )
     existing_notes = existing_index.get("by_path", {})
+    existing_lookup = _build_existing_note_lookup_from_notes(existing_index.get("notes", []))
     source_content = payload.source_note.content
     if payload.source_note.path in existing_notes:
         source_content = merge_existing_source_note(vault_root=vault_root, existing_note=existing_notes[payload.source_note.path], source_note=payload.source_note)
@@ -385,31 +539,61 @@ def build_ingestion_plan(*, vault_root: Path, payload: ExtractionPayload) -> Ing
         )
     )
 
+    candidate_operations: dict[str, PatchOperation] = {}
+    suppressed_existing_person_update_count = 0
     for candidate in payload.note_candidates + payload.unresolved_candidates:
-        note_path = _candidate_path(candidate)
+        existing_match = _lookup_existing_note(existing_lookup, candidate)
+        if _should_suppress_existing_person_update(
+            candidate=candidate,
+            existing_match=existing_match,
+            allow_existing_people_updates=allow_existing_people_updates,
+        ):
+            suppressed_existing_person_update_count += 1
+            continue
+        note_path = (
+            str(existing_match.get("path", "")).strip() or _candidate_path(candidate, vault_profile)
+            if existing_match is not None
+            else _candidate_path(candidate, vault_profile)
+        )
         content = render_canonical_note(candidate, note_path)
         if note_path in existing_notes:
             content = merge_existing_canonical_note(vault_root=vault_root, existing_note=existing_notes[note_path], candidate=candidate)
-        operations.append(
-            _operation_for_path(
-                existing_notes=existing_notes,
-                path=note_path,
-                content=content,
-                reason=f"{candidate.note_type} candidate",
-            )
+        candidate_operations[note_path] = _operation_for_path(
+            existing_notes=existing_notes,
+            path=note_path,
+            content=content,
+            reason=f"{candidate.note_type} candidate",
         )
+    operations.extend(candidate_operations[path] for path in sorted(candidate_operations))
 
     stats = {
         "operation_count": len(operations),
         "create_count": sum(1 for op in operations if op.action == "create"),
         "update_count": sum(1 for op in operations if op.action == "update"),
         "noop_count": sum(1 for op in operations if op.action == "noop"),
+        "suppressed_existing_person_update_count": suppressed_existing_person_update_count,
         **payload.stats,
     }
     return IngestionPlan(payload=payload, operations=operations, stats=stats)
 
 
-def apply_ingestion_plan(vault_root: Path, plan: IngestionPlan) -> dict[str, Any]:
+def apply_ingestion_plan(
+    vault_root: Path,
+    plan: IngestionPlan,
+    *,
+    vault_profile: dict[str, Any] | None = None,
+    vault_profile_name: str | None = None,
+    config_root: Path | None = None,
+    backup_dir: Path | None = None,
+) -> dict[str, Any]:
+    vault_profile = vault_profile or resolve_vault_profile(profile_name=vault_profile_name, config_root=config_root)
+    _validate_write_scope(plan=plan, vault_profile=vault_profile)
+    backup_summary = _prepare_write_backups(
+        vault_root=vault_root,
+        plan=plan,
+        vault_profile=vault_profile,
+        backup_dir=backup_dir,
+    )
     written = []
     for operation in plan.operations:
         if operation.action == "noop":
@@ -418,7 +602,70 @@ def apply_ingestion_plan(vault_root: Path, plan: IngestionPlan) -> dict[str, Any
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(operation.content, encoding="utf-8")
         written.append(operation.path)
-    return {"written_paths": written, "written_count": len(written)}
+    return {
+        "written_paths": written,
+        "written_count": len(written),
+        **backup_summary,
+    }
+
+
+def _validate_write_scope(*, plan: IngestionPlan, vault_profile: dict[str, Any]) -> None:
+    apply_policy = dict(vault_profile.get("apply_policy", {}))
+    if not apply_policy.get("enforce_managed_write_roots", True):
+        return
+    allowed_roots = managed_write_roots(vault_profile)
+    violations = []
+    for operation in plan.operations:
+        if operation.action == "noop":
+            continue
+        normalized = operation.path.strip().lstrip("./")
+        if not any(normalized == root or normalized.startswith(f"{root}/") for root in allowed_roots):
+            violations.append(operation.path)
+    if violations:
+        raise ValueError(
+            "Plan writes outside managed roots for the active vault profile: "
+            + ", ".join(sorted(violations))
+        )
+
+
+def _prepare_write_backups(
+    *,
+    vault_root: Path,
+    plan: IngestionPlan,
+    vault_profile: dict[str, Any],
+    backup_dir: Path | None,
+) -> dict[str, Any]:
+    apply_policy = dict(vault_profile.get("apply_policy", {}))
+    existing_write_paths = [
+        operation.path
+        for operation in plan.operations
+        if operation.action != "noop" and (vault_root / operation.path).exists()
+    ]
+    if not existing_write_paths:
+        return {"backup_required": False, "backup_created": False, "backup_path": None, "backed_up_paths": []}
+
+    require_backup = bool(apply_policy.get("require_backup_on_existing_write", False))
+    if require_backup and backup_dir is None:
+        raise ValueError(
+            "Applying to this vault profile requires --backup-dir when existing notes will be overwritten"
+        )
+    if backup_dir is None:
+        return {"backup_required": require_backup, "backup_created": False, "backup_path": None, "backed_up_paths": existing_write_paths}
+
+    backup_root = backup_dir / utc_now_iso()[:19].replace(":", "-")
+    backed_up_paths: list[str] = []
+    for rel_path in existing_write_paths:
+        source = vault_root / rel_path
+        target = backup_root / rel_path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source, target)
+        backed_up_paths.append(rel_path)
+    return {
+        "backup_required": require_backup,
+        "backup_created": True,
+        "backup_path": str(backup_root),
+        "backed_up_paths": backed_up_paths,
+    }
 
 
 def save_plan(plan: IngestionPlan, output_path: Path) -> None:
@@ -432,11 +679,14 @@ def ingest_files_directory(
     input_dir: Path,
     apply: bool = False,
     profile_name: str | None = None,
+    vault_profile_name: str | None = None,
     model_override: str | None = None,
     config_root: Path | None = None,
+    backup_dir: Path | None = None,
     plan_dir: Path | None = None,
     limit: int | None = None,
     pattern: str = "*.md",
+    allow_existing_people_updates: bool | None = None,
 ) -> dict[str, Any]:
     files = sorted(path for path in input_dir.rglob(pattern) if path.is_file())
     if limit is not None:
@@ -474,8 +724,10 @@ def ingest_files_directory(
                 vault_root=planning_vault_root,
                 input_path=input_path,
                 profile_name=profile_name,
+                vault_profile_name=vault_profile_name,
                 model_override=model_override,
                 config_root=config_root,
+                allow_existing_people_updates=allow_existing_people_updates,
             )
             saved_plan_path = None
             if plan_dir is not None:
@@ -485,11 +737,23 @@ def ingest_files_directory(
 
             written_count = 0
             if apply:
-                apply_result = apply_ingestion_plan(vault_root, plan)
+                apply_result = apply_ingestion_plan(
+                    vault_root,
+                    plan,
+                    vault_profile_name=vault_profile_name,
+                    config_root=config_root,
+                    backup_dir=backup_dir,
+                )
                 written_count = int(apply_result["written_count"])
                 total_written_count += written_count
             else:
-                apply_ingestion_plan(planning_vault_root, plan)
+                apply_ingestion_plan(
+                    planning_vault_root,
+                    plan,
+                    vault_profile_name=vault_profile_name,
+                    config_root=config_root,
+                    backup_dir=planning_vault_root.parent / "backups",
+                )
 
             file_results.append(
                 BatchFileResult(
@@ -523,11 +787,11 @@ def ingest_files_directory(
         }
 
         if apply:
-            post_index = index_vault(vault_root)
+            post_index = index_vault(vault_root, vault_profile_name=vault_profile_name, config_root=config_root)
             summary["check"] = {"issue_count": 0, "issues": []}
             from .integrity import validate_index
 
-            summary["check"] = validate_index(post_index)
+            summary["check"] = validate_index(post_index, vault_profile_name=vault_profile_name, config_root=config_root)
         return summary
     finally:
         if preview_workspace is not None:
@@ -599,7 +863,7 @@ def render_canonical_note(candidate: NoteCandidate, note_path: str) -> str:
         "status": "unresolved" if candidate.note_type == "unresolved" else "active",
     }
     if candidate.note_type == "entity":
-        metadata["entity_kind"] = candidate.kind or "unknown"
+        metadata["entity_kind"] = candidate.entity_kind or "unknown"
     elif candidate.note_type == "concept":
         metadata["concept_kind"] = candidate.kind or "unknown"
     elif candidate.note_type == "topic":
@@ -630,7 +894,16 @@ def render_canonical_note(candidate: NoteCandidate, note_path: str) -> str:
 
 def merge_existing_canonical_note(*, vault_root: Path, existing_note: dict[str, Any], candidate: NoteCandidate) -> str:
     raw_text = (vault_root / existing_note["path"]).read_text(encoding="utf-8")
-    metadata, body, _ = parse_frontmatter(raw_text)
+    metadata, body, parse_issues = parse_frontmatter(raw_text)
+    if _should_use_legacy_minimal_merge(existing_note=existing_note, metadata=metadata):
+        return merge_existing_legacy_canonical_note(
+            raw_text=raw_text,
+            metadata=metadata,
+            body=body,
+            parse_issues=parse_issues,
+            existing_note=existing_note,
+            candidate=candidate,
+        )
     sections = split_sections(body)
     original_source_refs = set(metadata.get("source_refs", []))
     original_source_docs = {_source_ref_document(item) for item in original_source_refs if _source_ref_document(item)}
@@ -661,6 +934,11 @@ def merge_existing_canonical_note(*, vault_root: Path, existing_note: dict[str, 
     metadata["source_refs"] = source_refs
     if "canonical_slug" in metadata:
         metadata["canonical_slug"] = metadata.get("canonical_slug") or candidate.canonical_slug
+    if candidate.note_type == "entity" and candidate.entity_kind:
+        current_entity_kind = str(metadata.get("entity_kind", "")).strip()
+        if (not current_entity_kind or current_entity_kind == "unknown") and candidate.entity_kind != current_entity_kind:
+            metadata["entity_kind"] = candidate.entity_kind
+            changed = True
     if "confidence" in metadata and not same_source_reingest:
         merged_confidence = _max_confidence(str(metadata.get("confidence", "low")), candidate.confidence)
         if merged_confidence != metadata.get("confidence"):
@@ -743,6 +1021,24 @@ def merge_existing_canonical_note(*, vault_root: Path, existing_note: dict[str, 
     return "\n".join(lines).rstrip() + "\n"
 
 
+def merge_existing_legacy_canonical_note(
+    *,
+    raw_text: str,
+    metadata: dict[str, Any],
+    body: str,
+    parse_issues: list[str],
+    existing_note: dict[str, Any],
+    candidate: NoteCandidate,
+) -> str:
+    existing_metadata = dict(metadata) if _has_clean_frontmatter(parse_issues) else {}
+    base_body = body if existing_metadata else raw_text
+    merged = dict(existing_metadata)
+    merged.update(_legacy_minimal_metadata(candidate=candidate, existing_note=existing_note, existing_metadata=existing_metadata))
+    frontmatter = _render_frontmatter(merged)
+    content = "\n".join(["---", frontmatter, "---", base_body.rstrip()]).rstrip() + "\n"
+    return raw_text if content == raw_text else content
+
+
 def merge_existing_source_note(*, vault_root: Path, existing_note: dict[str, Any], source_note: SourceNotePlan) -> str:
     raw_text = (vault_root / existing_note["path"]).read_text(encoding="utf-8")
     metadata, _, _ = parse_frontmatter(raw_text)
@@ -751,18 +1047,95 @@ def merge_existing_source_note(*, vault_root: Path, existing_note: dict[str, Any
     return source_note.content
 
 
-def _candidate_path(candidate: NoteCandidate) -> str:
+def _candidate_path(candidate: NoteCandidate, vault_profile: dict[str, Any]) -> str:
+    return build_candidate_note_path(
+        note_type=candidate.note_type,
+        title=candidate.title,
+        canonical_slug=candidate.canonical_slug,
+        note_kind=candidate.entity_kind if candidate.note_type == "entity" else candidate.kind,
+        profile=vault_profile,
+        date_value=utc_now_iso()[:10],
+    )
+
+
+def _filter_note_candidates(
+    candidates: list[NoteCandidate],
+    *,
+    vault_profile: dict[str, Any],
+    evidence_blocks: list[EvidenceBlock],
+) -> tuple[list[NoteCandidate], dict[str, int]]:
+    filtered: list[NoteCandidate] = []
+    stats = {
+        "dropped_untyped_entity_count": 0,
+        "dropped_self_reference_count": 0,
+        "dropped_generic_concept_count": 0,
+        "dropped_low_signal_project_count": 0,
+    }
+    self_reference_keys = _self_reference_keys(vault_profile)
+
+    for candidate in candidates:
+        if candidate.note_type == "entity" and not bool(str(candidate.entity_kind or "").strip()):
+            stats["dropped_untyped_entity_count"] += 1
+            continue
+        if candidate.note_type == "entity" and _is_self_reference_candidate(candidate, self_reference_keys):
+            stats["dropped_self_reference_count"] += 1
+            continue
+        if candidate.note_type == "concept" and _is_generic_concept_candidate(candidate):
+            stats["dropped_generic_concept_count"] += 1
+            continue
+        if candidate.note_type == "entity" and _is_low_signal_project_candidate(candidate, evidence_blocks):
+            stats["dropped_low_signal_project_count"] += 1
+            continue
+        filtered.append(candidate)
+    return filtered, stats
+
+
+def _should_use_legacy_minimal_merge(*, existing_note: dict[str, Any], metadata: dict[str, Any]) -> bool:
+    if str(metadata.get("managed_format", "")).strip() == "legacy_minimal":
+        return True
+    return not bool(existing_note.get("is_managed"))
+
+
+def _has_clean_frontmatter(parse_issues: list[str]) -> bool:
+    return not parse_issues
+
+
+def _legacy_minimal_metadata(
+    *,
+    candidate: NoteCandidate,
+    existing_note: dict[str, Any],
+    existing_metadata: dict[str, Any],
+) -> dict[str, Any]:
+    title = (
+        str(existing_metadata.get("title", "")).strip()
+        or str(existing_note.get("title", "")).strip()
+        or candidate.title
+    )
+    aliases = _merge_unique_list(existing_metadata.get("aliases", []), candidate.aliases)
+    minimal = {
+        "id": str(existing_metadata.get("id", "")).strip() or candidate.note_id or _default_note_id(candidate),
+        "type": candidate.note_type,
+        "title": title,
+        "managed_by": "autoknowledge",
+        "schema_version": 1,
+        "managed_format": "legacy_minimal",
+        "canonical_slug": str(existing_metadata.get("canonical_slug", "")).strip() or candidate.canonical_slug,
+    }
+    if aliases:
+        minimal["aliases"] = aliases
     if candidate.note_type == "entity":
-        return f"entities/{candidate.canonical_slug}.md"
-    if candidate.note_type == "concept":
-        return f"concepts/{candidate.canonical_slug}.md"
-    if candidate.note_type == "topic":
-        return f"topics/{candidate.canonical_slug}.md"
-    if candidate.note_type == "unresolved":
-        date_value = utc_now_iso()[:10]
-        short_id = stable_short_hash(candidate.title, candidate.canonical_slug, length=8)
-        return f"inbox/unresolved/{date_value}--{candidate.canonical_slug}--unres_{short_id}.md"
-    raise ValueError(f"Unsupported candidate type: {candidate.note_type}")
+        minimal["entity_kind"] = (
+            str(existing_metadata.get("entity_kind", "")).strip()
+            or candidate.entity_kind
+            or "unknown"
+        )
+    elif candidate.note_type == "concept":
+        minimal["concept_kind"] = (
+            str(existing_metadata.get("concept_kind", "")).strip()
+            or candidate.kind
+            or "unknown"
+        )
+    return minimal
 
 
 def _operation_for_path(*, existing_notes: dict[str, Any], path: str, content: str, reason: str) -> PatchOperation:
@@ -780,6 +1153,7 @@ def _extract_file_candidates(
     evidence_blocks: list[EvidenceBlock],
     input_text: str,
     profile: dict[str, Any],
+    vault_profile: dict[str, Any],
     same_source_reingest: bool = False,
 ) -> tuple[list[NoteCandidate], list[NoteCandidate], dict[str, Any]]:
     windows, window_stats = _plan_extraction_windows(
@@ -815,9 +1189,30 @@ def _extract_file_candidates(
             unresolved_candidates=provider_unresolved,
             deterministic_candidates=_merge_note_candidates(deterministic_candidates),
             evidence_blocks=evidence_blocks,
+            vault_profile=vault_profile,
             allow_provider_only_candidates=not same_source_reingest,
         )
-        return stabilized_candidates, stabilized_unresolved, {**provider_stats, **stabilization_stats}
+        resolved_candidates = _resolve_candidate_entity_kinds(
+            stabilized_candidates,
+            vault_profile=vault_profile,
+            evidence_blocks=evidence_blocks,
+        )
+        resolved_unresolved = _resolve_candidate_entity_kinds(
+            stabilized_unresolved,
+            vault_profile=vault_profile,
+            evidence_blocks=evidence_blocks,
+        )
+        filtered_candidates, filter_stats = _filter_note_candidates(
+            resolved_candidates,
+            vault_profile=vault_profile,
+            evidence_blocks=evidence_blocks,
+        )
+        stabilization_stats.update(filter_stats)
+        return (
+            filtered_candidates,
+            resolved_unresolved,
+            {**provider_stats, **stabilization_stats},
+        )
     candidates: list[NoteCandidate] = []
     for window in windows:
         window_text = _window_text(window.evidence_blocks)
@@ -830,7 +1225,18 @@ def _extract_file_candidates(
                 profile=profile,
             )
         )
-    return _merge_note_candidates(candidates), [], window_stats
+    resolved_candidates = _resolve_candidate_entity_kinds(
+        _merge_note_candidates(candidates),
+        vault_profile=vault_profile,
+        evidence_blocks=evidence_blocks,
+    )
+    filtered_candidates, filter_stats = _filter_note_candidates(
+        resolved_candidates,
+        vault_profile=vault_profile,
+        evidence_blocks=evidence_blocks,
+    )
+    window_stats.update(filter_stats)
+    return filtered_candidates, [], window_stats
 
 
 def _extract_conversation_candidates(
@@ -840,6 +1246,7 @@ def _extract_conversation_candidates(
     evidence_blocks: list[EvidenceBlock],
     parsed_messages: list[dict[str, str]],
     profile: dict[str, Any],
+    vault_profile: dict[str, Any],
     same_source_reingest: bool = False,
 ) -> tuple[list[NoteCandidate], list[NoteCandidate], dict[str, Any]]:
     windows, window_stats = _plan_extraction_windows(
@@ -874,9 +1281,20 @@ def _extract_conversation_candidates(
             unresolved_candidates=provider_unresolved,
             deterministic_candidates=_merge_note_candidates(deterministic_candidates),
             evidence_blocks=evidence_blocks,
+            vault_profile=vault_profile,
             allow_provider_only_candidates=not same_source_reingest,
         )
-        return stabilized_candidates, stabilized_unresolved, {**provider_stats, **stabilization_stats}
+        filtered_candidates, filter_stats = _filter_note_candidates(
+            _resolve_candidate_entity_kinds(stabilized_candidates, vault_profile=vault_profile, evidence_blocks=evidence_blocks),
+            vault_profile=vault_profile,
+            evidence_blocks=evidence_blocks,
+        )
+        stabilization_stats.update(filter_stats)
+        return (
+            filtered_candidates,
+            _resolve_candidate_entity_kinds(stabilized_unresolved, vault_profile=vault_profile, evidence_blocks=evidence_blocks),
+            {**provider_stats, **stabilization_stats},
+        )
     candidates: list[NoteCandidate] = []
     for window in windows:
         candidates.extend(
@@ -887,7 +1305,17 @@ def _extract_conversation_candidates(
                 profile=profile,
             )
         )
-    return _merge_note_candidates(candidates), [], window_stats
+    filtered_candidates, filter_stats = _filter_note_candidates(
+        _resolve_candidate_entity_kinds(
+            _merge_note_candidates(candidates),
+            vault_profile=vault_profile,
+            evidence_blocks=evidence_blocks,
+        ),
+        vault_profile=vault_profile,
+        evidence_blocks=evidence_blocks,
+    )
+    window_stats.update(filter_stats)
+    return filtered_candidates, [], window_stats
 
 
 def _extract_provider_windowed_candidates(
@@ -1037,7 +1465,8 @@ def _deterministic_conversation_candidates_for_window(
             confidence="high",
             source_ref=source_ref,
             relationship_text=f"participated_in -> {source_link}",
-            kind="person",
+            kind="speaker",
+            entity_kind="person",
             aliases=[speaker.lower()] if speaker.lower() != speaker else [],
         )
 
@@ -1267,6 +1696,7 @@ def _merge_note_candidates(candidates: list[NoteCandidate]) -> list[NoteCandidat
                 ],
                 note_id=incoming.note_id,
                 kind=incoming.kind,
+                entity_kind=incoming.entity_kind,
             )
             continue
 
@@ -1275,6 +1705,8 @@ def _merge_note_candidates(candidates: list[NoteCandidate]) -> list[NoteCandidat
         existing.confidence = _max_confidence(existing.confidence, incoming.confidence)
         if (not existing.kind or existing.kind == "unknown") and incoming.kind:
             existing.kind = incoming.kind
+        if (not existing.entity_kind or existing.entity_kind == "unknown") and incoming.entity_kind:
+            existing.entity_kind = incoming.entity_kind
         existing.aliases = _merge_unique_list(existing.aliases, incoming.aliases)
         existing.source_refs = _merge_unique_list(existing.source_refs, incoming.source_refs)
 
@@ -1303,6 +1735,196 @@ def _merge_note_candidates(candidates: list[NoteCandidate]) -> list[NoteCandidat
     ]
 
 
+def _resolve_candidate_entity_kinds(
+    candidates: list[NoteCandidate],
+    *,
+    vault_profile: dict[str, Any],
+    evidence_blocks: list[EvidenceBlock],
+) -> list[NoteCandidate]:
+    known_entity_kinds = {
+        normalize_entity_kind(kind, vault_profile)
+        for kind in vault_profile.get("entity_kind_dirs", {})
+        if normalize_entity_kind(kind, vault_profile)
+    }
+    if not known_entity_kinds:
+        return candidates
+
+    for candidate in candidates:
+        if candidate.note_type != "entity":
+            continue
+        resolved_kind = _resolve_entity_kind_for_candidate(
+            candidate,
+            known_entity_kinds=known_entity_kinds,
+            vault_profile=vault_profile,
+            evidence_blocks=evidence_blocks,
+        )
+        candidate.entity_kind = resolved_kind
+    return candidates
+
+
+def _resolve_entity_kind_for_candidate(
+    candidate: NoteCandidate,
+    *,
+    known_entity_kinds: set[str],
+    vault_profile: dict[str, Any],
+    evidence_blocks: list[EvidenceBlock],
+) -> str:
+    normalized_entity_kind = normalize_entity_kind(candidate.entity_kind or "", vault_profile)
+    if normalized_entity_kind in known_entity_kinds:
+        return normalized_entity_kind
+
+    normalized_kind = normalize_entity_kind(candidate.kind or "", vault_profile)
+    if normalized_kind in known_entity_kinds:
+        return normalized_kind
+
+    title_lower = candidate.title.lower()
+    title_tokens = [token for token in re.split(r"\s+", title_lower) if token]
+    single_token_title = len(candidate.title.split()) == 1
+    evidence_text = _candidate_evidence_context(candidate, evidence_blocks)
+    has_person_cues = _contains_any(evidence_text, PERSON_ROLE_CUES)
+    has_company_cues = _contains_any(evidence_text, {"company", "client", "organization", "contract", "vendor", "signed"})
+
+    if any(token in PERSON_NAME_REJECT_TOKENS for token in title_tokens):
+        return normalized_entity_kind
+
+    if "source" in known_entity_kinds and _contains_any(title_lower, SOURCE_KIND_KEYWORDS | {"newsletter", "podcast"}):
+        return "source"
+    if "source" in known_entity_kinds and _contains_any(evidence_text, SOURCE_KIND_KEYWORDS):
+        return "source"
+
+    if "offer" in known_entity_kinds and _contains_any(title_lower, OFFER_KIND_KEYWORDS):
+        return "offer"
+    if "offer" in known_entity_kinds and _contains_any(evidence_text, OFFER_KIND_KEYWORDS):
+        return "offer"
+
+    if "project" in known_entity_kinds and _contains_any(title_lower, PROJECT_KIND_KEYWORDS):
+        return "project"
+    if "project" in known_entity_kinds and _contains_any(evidence_text, PROJECT_KIND_KEYWORDS):
+        return "project"
+
+    company_like = _looks_like_company_name(candidate.title)
+    if "company" in known_entity_kinds and (
+        has_company_cues or ((not single_token_title) and company_like and not has_person_cues)
+    ):
+        return "company"
+
+    if "person" in known_entity_kinds and (
+        any(rel.text.startswith("participated_in ->") for rel in candidate.relationships)
+        or _looks_like_person_name(candidate.title)
+        or (len(candidate.title.split()) >= 2 and has_person_cues)
+    ):
+        return "person"
+    return normalized_entity_kind
+
+
+def _candidate_evidence_context(candidate: NoteCandidate, evidence_blocks: list[EvidenceBlock]) -> str:
+    title_lower = " ".join(candidate.title.lower().split()).strip()
+    if not title_lower:
+        return ""
+    matching: list[str] = []
+    for block in evidence_blocks:
+        for segment in _evidence_segments(block.text):
+            normalized = " ".join(segment.lower().split())
+            if title_lower in normalized:
+                matching.append(normalized)
+    if not matching:
+        return ""
+    return " ".join(matching[:4])
+
+
+def _evidence_segments(text: str) -> list[str]:
+    stripped = text.strip()
+    if not stripped:
+        return []
+    if stripped.startswith("#"):
+        return [stripped]
+    segments = [part.strip() for part in re.split(r"(?<=[.!?])\s+|\n+", stripped) if part.strip()]
+    return segments or [stripped]
+
+
+def _looks_like_person_name(title: str) -> bool:
+    parts = [part for part in re.split(r"\s+", title.strip()) if part]
+    if not 2 <= len(parts) <= 4:
+        return False
+    for part in parts:
+        cleaned = re.sub(r"[^A-Za-z'.-]", "", part)
+        if not cleaned:
+            return False
+        if cleaned.lower() in STOPWORDS:
+            return False
+        if cleaned.lower() in COMPANY_SUFFIXES:
+            return False
+        if cleaned.lower() in PERSON_NAME_REJECT_TOKENS:
+            return False
+        if cleaned.lower() in GENERIC_ENTITY_REJECT_TOKENS:
+            return False
+        if cleaned.lower() in SOURCE_KIND_KEYWORDS | OFFER_KIND_KEYWORDS | PROJECT_KIND_KEYWORDS:
+            return False
+        if cleaned.isupper() and len(cleaned) > 2:
+            return False
+    return True
+
+
+def _looks_like_company_name(title: str) -> bool:
+    parts = [part for part in re.split(r"\s+", title.strip()) if part]
+    normalized_parts = [re.sub(r"[^A-Za-z0-9&.-]", "", part).lower() for part in parts]
+    if any(part in COMPANY_SUFFIXES for part in normalized_parts):
+        return True
+    if len(parts) == 1 and title[:1].isupper():
+        return True
+    return False
+
+
+def _contains_any(text: str, phrases: set[str] | tuple[str, ...]) -> bool:
+    normalized = f" {text.lower()} "
+    for phrase in phrases:
+        token = str(phrase).strip().lower()
+        if not token:
+            continue
+        if f" {token} " in normalized or normalized.strip().startswith(token) or normalized.strip().endswith(token):
+            return True
+    return False
+
+
+def _self_reference_keys(vault_profile: dict[str, Any]) -> set[str]:
+    keys: set[str] = set()
+    for value in vault_profile.get("self_reference_names", []):
+        keys.update(identity_slug_variants(str(value)))
+    return {key for key in keys if key}
+
+
+def _is_self_reference_candidate(candidate: NoteCandidate, self_reference_keys: set[str]) -> bool:
+    if not self_reference_keys:
+        return False
+    return bool(_candidate_lookup_keys(candidate) & self_reference_keys)
+
+
+def _is_generic_concept_candidate(candidate: NoteCandidate) -> bool:
+    if candidate.note_type != "concept":
+        return False
+    title = " ".join(candidate.title.lower().split()).strip()
+    return title in GENERIC_CONCEPT_REJECT_TOKENS or candidate.canonical_slug in GENERIC_CONCEPT_REJECT_TOKENS
+
+
+def _is_low_signal_project_candidate(candidate: NoteCandidate, evidence_blocks: list[EvidenceBlock]) -> bool:
+    if candidate.note_type != "entity" or candidate.entity_kind != "project":
+        return False
+    title_lower = " ".join(candidate.title.lower().split()).strip()
+    title_tokens = [token for token in re.split(r"\s+", title_lower) if token]
+    support_count, heading_support = _candidate_title_support(candidate, evidence_blocks)
+    evidence_count = len(candidate.source_refs)
+    claim_count = len(candidate.claims)
+    generic_fragment = bool(title_tokens) and all(token in GENERIC_PROJECT_FRAGMENT_TOKENS for token in title_tokens)
+    if generic_fragment and evidence_count < 2 and claim_count == 0:
+        return True
+    evidence_text = _candidate_evidence_context(candidate, evidence_blocks)
+    if _contains_any(title_lower, PROJECT_KIND_KEYWORDS) or _contains_any(evidence_text, PROJECT_KIND_KEYWORDS):
+        return False
+    if candidate.confidence != "high" and evidence_count < 2 and claim_count == 0 and not heading_support and support_count < 2:
+        return True
+    return False
+
+
 def _upsert_candidate(
     candidates: dict[tuple[str, str], NoteCandidate],
     *,
@@ -1312,26 +1934,28 @@ def _upsert_candidate(
     source_ref: str,
     relationship_text: str,
     kind: str,
+    entity_kind: str | None = None,
     aliases: list[str] | None = None,
 ) -> None:
     title = " ".join(title.split()).strip()
     if not title:
         return
     slug = slugify(title)
-    key = (note_type, slug)
+    key = _preferred_candidate_key(candidates, note_type=note_type, title=title, slug=slug)
     candidate = candidates.get(key)
     if candidate is None:
         candidate = NoteCandidate(
             note_type=note_type,
             title=title,
-            canonical_slug=slug,
+            canonical_slug=key[1],
             confidence=confidence,
             aliases=aliases or [],
             source_refs=[source_ref] if source_ref else [],
             claims=[],
             relationships=[],
-            note_id=_default_note_id_for_type(note_type, slug),
+            note_id=_default_note_id_for_type(note_type, key[1]),
             kind=kind,
+            entity_kind=entity_kind,
         )
         candidates[key] = candidate
     else:
@@ -1341,6 +1965,8 @@ def _upsert_candidate(
         if source_ref and source_ref not in candidate.source_refs:
             candidate.source_refs.append(source_ref)
         candidate.confidence = _max_confidence(candidate.confidence, confidence)
+        if (not candidate.entity_kind or candidate.entity_kind == "unknown") and entity_kind:
+            candidate.entity_kind = entity_kind
 
     if source_ref and not any(rel.text == relationship_text and rel.source_ref == source_ref for rel in candidate.relationships):
         candidate.relationships.append(Relationship(text=relationship_text, source_ref=source_ref, confidence=confidence))
@@ -1434,6 +2060,38 @@ def _make_file_evidence_blocks(source_path: str, text: str) -> list[EvidenceBloc
     return blocks
 
 
+def _prepare_file_evidence_blocks_for_extraction(evidence_blocks: list[EvidenceBlock]) -> list[EvidenceBlock]:
+    cleaned_blocks: list[EvidenceBlock] = []
+    for block in evidence_blocks:
+        cleaned_text = _clean_file_block_for_extraction(block.text)
+        if not cleaned_text:
+            continue
+        cleaned_blocks.append(
+            EvidenceBlock(
+                anchor=block.anchor,
+                text=cleaned_text,
+                source_ref=block.source_ref,
+                speaker=block.speaker,
+                timestamp=block.timestamp,
+            )
+        )
+    return cleaned_blocks
+
+
+def _clean_file_block_for_extraction(text: str) -> str:
+    cleaned = " ".join(text.splitlines()).strip()
+    if not cleaned:
+        return ""
+    cleaned = re.sub(r"\bCollapse all\b", " ", cleaned, flags=re.IGNORECASE)
+    cleaned = PRESENTED_BY_FRAGMENT_RE.sub(" ", cleaned)
+    cleaned = TIMESTAMP_FRAGMENT_RE.sub(" ", cleaned)
+    cleaned = re.sub(r"\s+\.\s+", " ", cleaned)
+    cleaned = re.sub(r"\s{2,}", " ", cleaned).strip(" .")
+    if not cleaned or not re.search(r"[A-Za-z]", cleaned):
+        return ""
+    return cleaned
+
+
 def _parse_conversation_lines(text: str) -> list[dict[str, str]]:
     messages = []
     for raw_line in text.splitlines():
@@ -1483,6 +2141,7 @@ def _render_frontmatter(metadata: dict[str, Any]) -> str:
         "updated_at",
         "managed_by",
         "schema_version",
+        "managed_format",
         "source_kind",
         "origin",
         "source_path",
@@ -1620,9 +2279,9 @@ def _normalize_provider_result(
     evidence_blocks: list[EvidenceBlock],
 ) -> tuple[list[NoteCandidate], list[NoteCandidate]]:
     valid_source_refs = {block.source_ref for block in evidence_blocks}
-    note_candidates = _normalize_candidate_list(result.get("note_candidates", []), valid_source_refs)
-    unresolved_candidates = _normalize_candidate_list(result.get("unresolved_candidates", []), valid_source_refs)
     block_lookup = {block.source_ref: block for block in evidence_blocks}
+    note_candidates = _normalize_candidate_list(result.get("note_candidates", []), valid_source_refs, block_lookup)
+    unresolved_candidates = _normalize_candidate_list(result.get("unresolved_candidates", []), valid_source_refs, block_lookup)
     note_candidates = _drop_low_information_candidates(note_candidates, block_lookup)
     unresolved_candidates = _drop_low_information_candidates(unresolved_candidates, block_lookup)
     return note_candidates, unresolved_candidates
@@ -1635,9 +2294,10 @@ def _stabilize_live_candidates(
     unresolved_candidates: list[NoteCandidate],
     deterministic_candidates: list[NoteCandidate],
     evidence_blocks: list[EvidenceBlock],
+    vault_profile: dict[str, Any],
     allow_provider_only_candidates: bool = True,
 ) -> tuple[list[NoteCandidate], list[NoteCandidate], dict[str, Any]]:
-    existing_lookup = _build_existing_note_lookup(vault_root)
+    existing_lookup = _build_existing_note_lookup(vault_root, vault_profile)
     deterministic_lookup = _build_candidate_lookup(deterministic_candidates)
     resolved_candidates: list[NoteCandidate] = []
     resolved_unresolved: list[NoteCandidate] = []
@@ -1671,6 +2331,8 @@ def _stabilize_live_candidates(
                 stats["stabilized_to_deterministic_count"] += 1
                 matched_deterministic = True
 
+        incoming = _stabilize_candidate_claims_against_evidence(incoming, evidence_blocks)
+
         if incoming.note_type == "unresolved":
             if _should_keep_unresolved(incoming):
                 resolved_unresolved.append(incoming)
@@ -1690,6 +2352,10 @@ def _stabilize_live_candidates(
         resolved_candidates.append(incoming)
 
     merged_candidates = _merge_note_candidates(deterministic_candidates + resolved_candidates)
+    merged_candidates = [
+        _stabilize_candidate_claims_against_evidence(candidate, evidence_blocks)
+        for candidate in merged_candidates
+    ]
     canonical_lookup = _build_candidate_lookup(merged_candidates)
     filtered_unresolved: list[NoteCandidate] = []
     for incoming in resolved_unresolved:
@@ -1701,18 +2367,51 @@ def _stabilize_live_candidates(
     return _merge_note_candidates(merged_candidates), _merge_note_candidates(filtered_unresolved), stats
 
 
-def _build_existing_note_lookup(vault_root: Path) -> dict[str, list[dict[str, Any]]]:
+def _build_existing_note_lookup(vault_root: Path, vault_profile: dict[str, Any]) -> dict[str, list[dict[str, Any]]]:
     if not vault_root.exists():
         return {}
-    index = index_vault(vault_root)
+    index = index_vault(vault_root, vault_profile=vault_profile)
+    return _build_existing_note_lookup_from_notes(index.get("notes", []))
+
+
+def _build_existing_note_lookup_from_notes(notes: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
     lookup: dict[str, list[dict[str, Any]]] = {}
-    for note in index.get("notes", []):
+    for note in notes:
         note_type = str(note.get("note_type", "")).strip().lower()
         if note_type not in {"entity", "concept", "topic"}:
             continue
         for key in _note_lookup_keys(note):
             lookup.setdefault(key, []).append(note)
     return lookup
+
+
+def _resolved_candidate_path(
+    *,
+    candidate: NoteCandidate,
+    vault_profile: dict[str, Any],
+    existing_lookup: dict[str, list[dict[str, Any]]],
+) -> str:
+    existing_match = _lookup_existing_note(existing_lookup, candidate)
+    if existing_match is not None:
+        return str(existing_match.get("path", "")).strip() or _candidate_path(candidate, vault_profile)
+    return _candidate_path(candidate, vault_profile)
+
+
+def _should_suppress_existing_person_update(
+    *,
+    candidate: NoteCandidate,
+    existing_match: dict[str, Any] | None,
+    allow_existing_people_updates: bool,
+) -> bool:
+    if allow_existing_people_updates:
+        return False
+    if existing_match is None:
+        return False
+    if candidate.note_type != "entity":
+        return False
+    existing_type = str(existing_match.get("note_type", "")).strip().lower()
+    existing_kind = str(existing_match.get("note_kind", "")).strip().lower()
+    return existing_type == "entity" and existing_kind == "person"
 
 
 def _build_candidate_lookup(candidates: list[NoteCandidate]) -> dict[str, list[NoteCandidate]]:
@@ -1759,6 +2458,7 @@ def _snap_candidate_to_existing(candidate: NoteCandidate, existing_note: dict[st
     existing_title = str(existing_note.get("title", candidate.title)).strip() or candidate.title
     existing_slug = str(metadata.get("canonical_slug", "")) or str(existing_note.get("stem", "")) or candidate.canonical_slug
     aliases = _merge_unique_list(metadata.get("aliases", []), [candidate.title, *candidate.aliases])
+    existing_kind = str(existing_note.get("note_kind", "")).strip() or _existing_kind(metadata, existing_type)
     return NoteCandidate(
         note_type=existing_type,
         title=existing_title,
@@ -1769,7 +2469,8 @@ def _snap_candidate_to_existing(candidate: NoteCandidate, existing_note: dict[st
         claims=list(candidate.claims),
         relationships=list(candidate.relationships),
         note_id=str(metadata.get("id", "")) or candidate.note_id,
-        kind=_existing_kind(metadata, existing_type) or candidate.kind,
+        kind=candidate.kind,
+        entity_kind=existing_kind if existing_type == "entity" else candidate.entity_kind,
     )
 
 
@@ -1785,7 +2486,8 @@ def _snap_candidate_to_anchor(candidate: NoteCandidate, anchor: NoteCandidate) -
         claims=list(candidate.claims),
         relationships=list(candidate.relationships),
         note_id=anchor.note_id,
-        kind=anchor.kind or candidate.kind,
+        kind=candidate.kind or anchor.kind,
+        entity_kind=anchor.entity_kind or candidate.entity_kind,
     )
 
 
@@ -1799,23 +2501,39 @@ def _existing_kind(metadata: dict[str, Any], note_type: str) -> str:
 
 def _candidate_lookup_keys(candidate: NoteCandidate) -> set[str]:
     keys = {candidate.canonical_slug, slugify(candidate.title)}
+    keys.update(identity_slug_variants(candidate.title))
+    keys.update(identity_slug_variants(candidate.canonical_slug.replace("-", " ")))
     for alias in candidate.aliases:
-        alias_slug = slugify(alias)
-        if alias_slug:
-            keys.add(alias_slug)
+        keys.update(identity_slug_variants(alias))
     return {key for key in keys if key}
 
 
 def _note_lookup_keys(note: dict[str, Any]) -> set[str]:
     metadata = dict(note.get("metadata", {}))
-    keys = {
-        slugify(str(note.get("title", ""))),
-        slugify(str(note.get("stem", ""))),
-        slugify(str(metadata.get("canonical_slug", ""))),
-    }
+    keys = set()
+    keys.update(identity_slug_variants(str(note.get("title", ""))))
+    keys.update(identity_slug_variants(str(note.get("stem", ""))))
+    keys.update(identity_slug_variants(str(metadata.get("canonical_slug", ""))))
     for alias in metadata.get("aliases", []):
-        keys.add(slugify(str(alias)))
+        keys.update(identity_slug_variants(str(alias)))
     return {key for key in keys if key}
+
+
+def _preferred_candidate_key(
+    candidates: dict[tuple[str, str], NoteCandidate],
+    *,
+    note_type: str,
+    title: str,
+    slug: str,
+) -> tuple[str, str]:
+    direct = (note_type, slug)
+    if direct in candidates:
+        return direct
+    for alt_slug in sorted(identity_slug_variants(title)):
+        candidate_key = (note_type, alt_slug)
+        if candidate_key in candidates:
+            return candidate_key
+    return direct
 
 
 def _is_low_signal_candidate(candidate: NoteCandidate) -> bool:
@@ -1874,6 +2592,49 @@ def _should_keep_provider_only_candidate(candidate: NoteCandidate, *, evidence_b
     return evidence_count >= 2 and (claim_count >= 1 or relation_count >= 1)
 
 
+def _stabilize_candidate_claims_against_evidence(
+    candidate: NoteCandidate,
+    evidence_blocks: list[EvidenceBlock],
+) -> NoteCandidate:
+    block_lookup = {block.source_ref: block for block in evidence_blocks}
+    canonicalized: list[Claim] = []
+    seen_claims: set[tuple[str, str]] = set()
+
+    for claim in candidate.claims:
+        stabilized = _canonicalize_claim_to_evidence(claim, block_lookup.get(claim.source_ref))
+        if _is_low_signal_claim(candidate, stabilized, block_lookup.get(stabilized.source_ref)):
+            continue
+        key = (stabilized.text, stabilized.source_ref)
+        if key in seen_claims:
+            continue
+        seen_claims.add(key)
+        canonicalized.append(stabilized)
+    candidate.claims = canonicalized
+
+    if candidate.note_type == "entity":
+        support_count, _ = _candidate_title_support(candidate, evidence_blocks)
+        stable_claims = _direct_evidence_claims_for_candidate(candidate, evidence_blocks)
+        if support_count >= 2 and len(stable_claims) >= 2:
+            candidate.claims = stable_claims[:4]
+        else:
+            target_count = min(support_count, 4)
+            if target_count >= 2 and len(candidate.claims) < target_count:
+                for fallback in stable_claims:
+                    key = (fallback.text, fallback.source_ref)
+                    if key in seen_claims:
+                        continue
+                    seen_claims.add(key)
+                    candidate.claims.append(fallback)
+                    if len(candidate.claims) >= target_count:
+                        break
+
+    candidate.source_refs = _merge_unique_list(
+        [item.source_ref for item in candidate.claims],
+        [item.source_ref for item in candidate.relationships],
+    )
+    return candidate
+
+
 def _candidate_title_support(candidate: NoteCandidate, evidence_blocks: list[EvidenceBlock]) -> tuple[int, bool]:
     title = " ".join(candidate.title.lower().split()).strip()
     if not title:
@@ -1912,7 +2673,11 @@ def _dedupe_candidates(candidates: list[NoteCandidate]) -> list[NoteCandidate]:
     return result
 
 
-def _normalize_candidate_list(raw_candidates: list[Any], valid_source_refs: set[str]) -> list[NoteCandidate]:
+def _normalize_candidate_list(
+    raw_candidates: list[Any],
+    valid_source_refs: set[str],
+    block_lookup: dict[str, EvidenceBlock],
+) -> list[NoteCandidate]:
     merged: dict[tuple[str, str], NoteCandidate] = {}
     for raw in raw_candidates:
         if not isinstance(raw, dict):
@@ -1927,24 +2692,34 @@ def _normalize_candidate_list(raw_candidates: list[Any], valid_source_refs: set[
         confidence = str(raw.get("confidence", "low")).lower()
         if confidence not in {"high", "medium", "low"}:
             confidence = "low"
-        key = (note_type, slug)
+        key = _preferred_merged_candidate_key(merged, note_type=note_type, title=title, slug=slug)
         candidate = merged.get(key)
         if candidate is None:
+            raw_kind = str(raw.get("kind", "unknown")).strip() or "unknown"
+            raw_entity_kind = _normalize_optional_entity_kind(raw.get("entity_kind", ""))
             candidate = NoteCandidate(
                 note_type=note_type,
                 title=title,
-                canonical_slug=slug,
+                canonical_slug=key[1],
                 confidence=confidence,
                 aliases=[],
                 source_refs=[],
                 claims=[],
                 relationships=[],
-                note_id=_default_note_id_for_type(note_type, slug),
-                kind=str(raw.get("kind", "unknown")).strip() or "unknown",
+                note_id=_default_note_id_for_type(note_type, key[1]),
+                kind=raw_kind,
+                entity_kind=raw_entity_kind or (raw_kind if note_type == "entity" else ""),
             )
             merged[key] = candidate
         else:
             candidate.confidence = _max_confidence(candidate.confidence, confidence)
+            if note_type == "entity" and (not candidate.entity_kind or candidate.entity_kind == "unknown"):
+                raw_entity_kind = _normalize_optional_entity_kind(raw.get("entity_kind", ""))
+                raw_kind = str(raw.get("kind", "")).strip()
+                if raw_entity_kind:
+                    candidate.entity_kind = raw_entity_kind
+                elif raw_kind:
+                    candidate.entity_kind = raw_kind
 
         for alias in raw.get("aliases", []):
             alias_text = " ".join(str(alias).split()).strip()
@@ -1968,11 +2743,38 @@ def _normalize_candidate_list(raw_candidates: list[Any], valid_source_refs: set[
                 if relation.source_ref not in candidate.source_refs:
                     candidate.source_refs.append(relation.source_ref)
 
+        candidate.claims = [
+            claim
+            for claim in candidate.claims
+            if not _is_low_signal_claim(candidate, claim, block_lookup.get(claim.source_ref))
+        ]
+        candidate.source_refs = _merge_unique_list(
+            [item.source_ref for item in candidate.claims],
+            [item.source_ref for item in candidate.relationships],
+        )
+
     return [
         candidate
         for candidate in sorted(merged.values(), key=lambda item: (item.note_type, item.canonical_slug))
         if candidate.source_refs
     ]
+
+
+def _preferred_merged_candidate_key(
+    merged: dict[tuple[str, str], NoteCandidate],
+    *,
+    note_type: str,
+    title: str,
+    slug: str,
+) -> tuple[str, str]:
+    direct = (note_type, slug)
+    if direct in merged:
+        return direct
+    for alt_slug in sorted(identity_slug_variants(title)):
+        candidate_key = (note_type, alt_slug)
+        if candidate_key in merged:
+            return candidate_key
+    return direct
 
 
 def _normalize_evidence_item(raw: Any, valid_source_refs: set[str]) -> Claim | None:
@@ -1988,6 +2790,115 @@ def _normalize_evidence_item(raw: Any, valid_source_refs: set[str]) -> Claim | N
     return Claim(text=text, source_ref=source_ref, confidence=confidence)
 
 
+def _canonicalize_claim_to_evidence(claim: Claim, block: EvidenceBlock | None) -> Claim:
+    if block is None:
+        return claim
+    claim_text = " ".join(claim.text.split()).strip()
+    if not claim_text:
+        return claim
+    segments = _evidence_segments(block.text)
+    if not segments:
+        return claim
+
+    normalized_claim = " ".join(claim_text.lower().split())
+    best_segment = ""
+    best_score = 0
+    claim_tokens = {token for token in WORD_RE.findall(normalized_claim) if token not in STOPWORDS}
+
+    for segment in segments:
+        normalized_segment = " ".join(segment.split()).strip()
+        if not normalized_segment or normalized_segment.startswith("#"):
+            continue
+        segment_lower = " ".join(normalized_segment.lower().split())
+        if segment_lower == normalized_claim:
+            return Claim(text=normalized_segment, source_ref=claim.source_ref, confidence=claim.confidence)
+        segment_tokens = {token for token in WORD_RE.findall(segment_lower) if token not in STOPWORDS}
+        overlap = len(claim_tokens & segment_tokens)
+        if overlap > best_score:
+            best_score = overlap
+            best_segment = normalized_segment
+
+    if best_segment and best_score >= 2:
+        return Claim(text=best_segment, source_ref=claim.source_ref, confidence=claim.confidence)
+    return claim
+
+
+GENERIC_DISCUSSION_CLAIM_RE = re.compile(
+    r"\b(?:is|are)\s+(?:both\s+)?(?:discussed|mentioned)\s+in\s+the\s+"
+    r"(?:(?:final|weekly|quarterly|procurement|leadership)\s+)?"
+    r"(?:review|meeting|discussion|notes?)\b"
+)
+
+
+def _normalize_optional_entity_kind(raw: Any) -> str:
+    text = " ".join(str(raw).split()).strip()
+    if not text:
+        return ""
+    if text.lower() in {"none", "null", "n/a", "na", "unknown"}:
+        return ""
+    return text
+
+
+def _direct_evidence_claims_for_candidate(candidate: NoteCandidate, evidence_blocks: list[EvidenceBlock]) -> list[Claim]:
+    title = " ".join(candidate.title.lower().split()).strip()
+    if not title:
+        return []
+    results: list[Claim] = []
+    seen: set[tuple[str, str]] = set()
+    for block in evidence_blocks:
+        for segment in _evidence_segments(block.text):
+            normalized_segment = " ".join(segment.split()).strip()
+            if not normalized_segment or normalized_segment.startswith("#"):
+                continue
+            segment_lower = " ".join(normalized_segment.lower().split())
+            if title not in segment_lower:
+                continue
+            if not _segment_has_direct_subject_match(segment_lower, title):
+                continue
+            claim = Claim(text=normalized_segment, source_ref=block.source_ref, confidence="high")
+            if _is_low_signal_claim(candidate, claim, block):
+                continue
+            key = (claim.text, claim.source_ref)
+            if key in seen:
+                continue
+            seen.add(key)
+            results.append(claim)
+            break
+    return results
+
+
+def _segment_has_direct_subject_match(segment_lower: str, title: str) -> bool:
+    if segment_lower.startswith(title):
+        return True
+    if segment_lower.startswith(f"the {title}"):
+        return True
+    return False
+
+
+def _is_low_signal_claim(candidate: NoteCandidate, claim: Claim, block: EvidenceBlock | None) -> bool:
+    normalized = " ".join(claim.text.lower().split())
+    if not normalized:
+        return True
+    if GENERIC_DISCUSSION_CLAIM_RE.search(normalized):
+        return True
+    if block is None:
+        return False
+    source_text = " ".join(block.text.lower().split())
+    if not source_text:
+        return False
+    title = " ".join(candidate.title.lower().split())
+    if not title:
+        return False
+    if (
+        title in source_text
+        and " and " in source_text
+        and GENERIC_DISCUSSION_CLAIM_RE.search(source_text)
+        and (" discussed " in normalized or " mentioned " in normalized)
+    ):
+        return True
+    return False
+
+
 def _normalize_relationship_item(raw: Any, valid_source_refs: set[str]) -> Relationship | None:
     if not isinstance(raw, dict):
         return None
@@ -1995,6 +2906,8 @@ def _normalize_relationship_item(raw: Any, valid_source_refs: set[str]) -> Relat
     source_ref = str(raw.get("source_ref", "")).strip()
     confidence = str(raw.get("confidence", "low")).lower()
     if not text or source_ref not in valid_source_refs:
+        return None
+    if "->" not in text:
         return None
     if confidence not in {"high", "medium", "low"}:
         confidence = "low"

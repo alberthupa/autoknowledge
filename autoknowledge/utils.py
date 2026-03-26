@@ -7,6 +7,8 @@ import re
 from datetime import datetime, timezone
 from pathlib import Path
 
+LEADING_ARTICLE_RE = re.compile(r"^(?:the|a|an)\s+")
+
 
 def slugify(value: str) -> str:
     value = value.lower()
@@ -14,6 +16,21 @@ def slugify(value: str) -> str:
     value = re.sub(r"\s+", "-", value.strip())
     value = re.sub(r"-{2,}", "-", value)
     return value.strip("-") or "untitled"
+
+
+def identity_text_variants(value: str) -> set[str]:
+    normalized = " ".join(value.strip().lower().split())
+    if not normalized:
+        return set()
+    variants = {normalized}
+    stripped = LEADING_ARTICLE_RE.sub("", normalized)
+    if stripped and stripped != normalized:
+        variants.add(stripped)
+    return variants
+
+
+def identity_slug_variants(value: str) -> set[str]:
+    return {slugify(item) for item in identity_text_variants(value) if item.strip()}
 
 
 def stable_short_hash(*parts: str, length: int = 8) -> str:
@@ -38,4 +55,3 @@ def year_from_date(date_value: str) -> str:
 def title_from_path(path: Path) -> str:
     stem = path.stem.replace("_", " ").replace("-", " ")
     return " ".join(token.capitalize() for token in stem.split()) or "Untitled"
-

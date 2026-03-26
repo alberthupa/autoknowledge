@@ -20,8 +20,15 @@ from autoknowledge.ledger import append_record, tail_records
 from autoknowledge.local_env import load_local_env
 from autoknowledge.metrics import compute_metrics
 from autoknowledge.providers import list_provider_models
+from autoknowledge.repair import apply_repair_plan, plan_graph_repairs, save_repair_plan
 from autoknowledge.retrieval_qa import load_question_set, run_question_set
-from autoknowledge.runtime_config import load_runtime_config
+from autoknowledge.runtime_config import (
+    load_runtime_config,
+    resolve_runtime_backup_dir,
+    resolve_runtime_vault_path,
+    resolve_runtime_vault_profile,
+)
+from autoknowledge.runtime_contract import validate_runtime_contract
 from autoknowledge.self_update import run_self_update
 
 
@@ -29,72 +36,131 @@ def main() -> int:
     load_local_env()
     parser = argparse.ArgumentParser(description="AutoKnowledge thin harness")
     subparsers = parser.add_subparsers(dest="command", required=True)
+    runtime_help = "Optional runtime overlay JSON; defaults to config/runtime.local.json"
 
     index_parser = subparsers.add_parser("index", help="Index a vault")
-    index_parser.add_argument("--vault", required=True, help="Path to the vault root")
+    index_parser.add_argument("--vault", help="Path to the vault root; defaults to runtime config")
     index_parser.add_argument("--output", help="Optional path for the JSON snapshot")
+    index_parser.add_argument("--vault-profile", help="Optional vault profile override")
+    index_parser.add_argument("--config-root", default="config", help="Config directory root")
+    index_parser.add_argument("--runtime-config", help=runtime_help)
 
     check_parser = subparsers.add_parser("check", help="Run integrity checks against a vault")
-    check_parser.add_argument("--vault", required=True, help="Path to the vault root")
+    check_parser.add_argument("--vault", help="Path to the vault root; defaults to runtime config")
+    check_parser.add_argument("--vault-profile", help="Optional vault profile override")
+    check_parser.add_argument("--config-root", default="config", help="Config directory root")
+    check_parser.add_argument("--runtime-config", help=runtime_help)
 
     metrics_parser = subparsers.add_parser("metrics", help="Compute integrity-backed metrics")
-    metrics_parser.add_argument("--vault", required=True, help="Path to the vault root")
+    metrics_parser.add_argument("--vault", help="Path to the vault root; defaults to runtime config")
+    metrics_parser.add_argument("--vault-profile", help="Optional vault profile override")
+    metrics_parser.add_argument("--config-root", default="config", help="Config directory root")
+    metrics_parser.add_argument("--runtime-config", help=runtime_help)
 
     diff_parser = subparsers.add_parser("diff", help="Compare two saved index snapshots")
     diff_parser.add_argument("--before", required=True, help="Earlier index JSON")
     diff_parser.add_argument("--after", required=True, help="Later index JSON")
 
     ingest_file_parser = subparsers.add_parser("ingest-file", help="Build or apply an ingestion plan for one file")
-    ingest_file_parser.add_argument("--vault", required=True, help="Path to the target vault root")
+    ingest_file_parser.add_argument("--vault", help="Path to the target vault root; defaults to runtime config")
     ingest_file_parser.add_argument("--input", required=True, help="Path to the input file")
     ingest_file_parser.add_argument("--origin", help="Optional source origin label")
     ingest_file_parser.add_argument("--title", help="Optional explicit title")
     ingest_file_parser.add_argument("--profile", help="Optional extractor profile override")
+    ingest_file_parser.add_argument("--vault-profile", help="Optional vault profile override")
     ingest_file_parser.add_argument("--model", help="Optional model override inside the chosen profile")
     ingest_file_parser.add_argument("--config-root", default="config", help="Config directory root")
+    ingest_file_parser.add_argument("--runtime-config", help=runtime_help)
     ingest_file_parser.add_argument("--apply", action="store_true", help="Write planned changes to the vault")
+    ingest_file_parser.add_argument("--backup-dir", help="Optional backup directory for overwritten notes on apply")
     ingest_file_parser.add_argument("--plan-output", help="Optional path for saving the full plan JSON")
+    ingest_file_parser.add_argument(
+        "--allow-existing-people-updates",
+        action="store_true",
+        default=None,
+        help="Allow ingest to update existing person notes even if the vault profile guards them by default",
+    )
 
     ingest_conversation_parser = subparsers.add_parser(
         "ingest-conversation", help="Build or apply an ingestion plan for one conversation log"
     )
-    ingest_conversation_parser.add_argument("--vault", required=True, help="Path to the target vault root")
+    ingest_conversation_parser.add_argument("--vault", help="Path to the target vault root; defaults to runtime config")
     ingest_conversation_parser.add_argument("--input", required=True, help="Path to the conversation log")
     ingest_conversation_parser.add_argument("--origin", help="Optional source origin label")
     ingest_conversation_parser.add_argument("--title", help="Optional explicit title")
     ingest_conversation_parser.add_argument("--channel", help="Optional channel label")
     ingest_conversation_parser.add_argument("--profile", help="Optional extractor profile override")
+    ingest_conversation_parser.add_argument("--vault-profile", help="Optional vault profile override")
     ingest_conversation_parser.add_argument("--model", help="Optional model override inside the chosen profile")
     ingest_conversation_parser.add_argument("--config-root", default="config", help="Config directory root")
+    ingest_conversation_parser.add_argument("--runtime-config", help=runtime_help)
     ingest_conversation_parser.add_argument("--apply", action="store_true", help="Write planned changes to the vault")
+    ingest_conversation_parser.add_argument("--backup-dir", help="Optional backup directory for overwritten notes on apply")
     ingest_conversation_parser.add_argument("--plan-output", help="Optional path for saving the full plan JSON")
+    ingest_conversation_parser.add_argument(
+        "--allow-existing-people-updates",
+        action="store_true",
+        default=None,
+        help="Allow ingest to update existing person notes even if the vault profile guards them by default",
+    )
 
     batch_parser = subparsers.add_parser("ingest-batch-files", help="Batch ingest a directory of files")
-    batch_parser.add_argument("--vault", required=True, help="Path to the target vault root")
+    batch_parser.add_argument("--vault", help="Path to the target vault root; defaults to runtime config")
     batch_parser.add_argument("--input-dir", help="Directory to ingest; defaults to config/runtime.json")
     batch_parser.add_argument("--profile", help="Optional extractor profile override")
+    batch_parser.add_argument("--vault-profile", help="Optional vault profile override")
     batch_parser.add_argument("--model", help="Optional model override inside the chosen profile")
     batch_parser.add_argument("--config-root", default="config", help="Config directory root")
+    batch_parser.add_argument("--runtime-config", help=runtime_help)
     batch_parser.add_argument("--apply", action="store_true", help="Write planned changes to the vault")
+    batch_parser.add_argument("--backup-dir", help="Optional backup directory for overwritten notes on apply")
     batch_parser.add_argument("--limit", type=int, help="Optional maximum file count")
     batch_parser.add_argument("--glob", default="*.md", help="Glob pattern under the input dir")
     batch_parser.add_argument("--summary-output", help="Optional path for saving the batch summary JSON")
     batch_parser.add_argument("--plan-dir", help="Optional directory for per-file plan JSON files")
+    batch_parser.add_argument(
+        "--allow-existing-people-updates",
+        action="store_true",
+        default=None,
+        help="Allow ingest to update existing person notes even if the vault profile guards them by default",
+    )
 
     list_models_parser = subparsers.add_parser("list-models", help="List available models for a provider")
     list_models_parser.add_argument("--provider", required=True, choices=["openai", "anthropic"], help="Provider name")
 
+    repair_parser = subparsers.add_parser("repair-graph", help="Plan or apply deterministic graph repairs")
+    repair_parser.add_argument("--vault", help="Path to the vault root; defaults to runtime config")
+    repair_parser.add_argument("--vault-profile", help="Optional vault profile override")
+    repair_parser.add_argument("--config-root", default="config", help="Config directory root")
+    repair_parser.add_argument("--runtime-config", help=runtime_help)
+    repair_parser.add_argument("--apply", action="store_true", help="Write planned repairs to the vault")
+    repair_parser.add_argument("--backup-dir", help="Optional backup directory for overwritten notes on apply")
+    repair_parser.add_argument("--plan-output", help="Optional path for saving the repair plan JSON")
+
+    contract_parser = subparsers.add_parser(
+        "runtime-contract-check", help="Validate the documented runtime-to-skill contract"
+    )
+    contract_parser.add_argument(
+        "--contract",
+        default="config/runtime_skill_contract.json",
+        help="Path to the machine-readable runtime contract JSON",
+    )
+
     benchmark_parser = subparsers.add_parser("benchmark-run", help="Run a benchmark manifest")
     benchmark_parser.add_argument("--manifest", required=True, help="Path to a benchmark manifest JSON file")
     benchmark_parser.add_argument("--profile", help="Optional profile override for all cases")
+    benchmark_parser.add_argument("--vault-profile", help="Optional vault profile override for all cases")
     benchmark_parser.add_argument("--model", help="Optional model override for all cases")
     benchmark_parser.add_argument("--config-root", default="config", help="Config directory root")
     benchmark_parser.add_argument("--keep-workdirs", action="store_true", help="Keep per-case temp workdirs for inspection")
     benchmark_parser.add_argument("--output", help="Optional path for saving the benchmark result JSON")
 
     qa_parser = subparsers.add_parser("qa-run", help="Run deterministic retrieval QA against a vault")
-    qa_parser.add_argument("--vault", required=True, help="Path to the vault root")
+    qa_parser.add_argument("--vault", help="Path to the vault root; defaults to runtime config")
     qa_parser.add_argument("--questions", required=True, help="Path to a question-set JSON file")
+    qa_parser.add_argument("--vault-profile", help="Optional vault profile override")
+    qa_parser.add_argument("--config-root", default="config", help="Config directory root")
+    qa_parser.add_argument("--runtime-config", help=runtime_help)
     qa_parser.add_argument("--scope", default="canonical", help="Search scope: canonical or managed")
     qa_parser.add_argument("--top-k", type=int, default=5, help="Number of top retrieval matches per question")
     qa_parser.add_argument("--output", help="Optional path for saving the QA result JSON")
@@ -125,24 +191,48 @@ def main() -> int:
     ledger_tail.add_argument("--limit", type=int, default=10, help="Number of records to show")
 
     args = parser.parse_args()
+    config_root = Path(getattr(args, "config_root", "config"))
+    runtime_config_path = Path(args.runtime_config) if getattr(args, "runtime_config", None) else None
+
+    def vault_root() -> Path:
+        return resolve_runtime_vault_path(
+            vault_path=getattr(args, "vault", None),
+            config_root=config_root,
+            runtime_config_path=runtime_config_path,
+        )
+
+    def vault_profile_name() -> str | None:
+        return resolve_runtime_vault_profile(
+            vault_profile_name=getattr(args, "vault_profile", None),
+            config_root=config_root,
+            runtime_config_path=runtime_config_path,
+        )
+
+    def backup_dir() -> Path | None:
+        return resolve_runtime_backup_dir(
+            backup_dir=getattr(args, "backup_dir", None),
+            config_root=config_root,
+            runtime_config_path=runtime_config_path,
+            apply_requested=bool(getattr(args, "apply", False)),
+        )
 
     try:
         if args.command == "index":
-            index = index_vault(Path(args.vault))
+            index = index_vault(vault_root(), vault_profile_name=vault_profile_name(), config_root=config_root)
             if args.output:
                 save_index(index, Path(args.output))
             print(json.dumps(index, indent=2, sort_keys=True))
             return 0
 
         if args.command == "check":
-            index = index_vault(Path(args.vault))
-            report = validate_index(index)
+            index = index_vault(vault_root(), vault_profile_name=vault_profile_name(), config_root=config_root)
+            report = validate_index(index, vault_profile_name=vault_profile_name(), config_root=config_root)
             print(json.dumps(report, indent=2, sort_keys=True))
             return 1 if report["issue_count"] else 0
 
         if args.command == "metrics":
-            index = index_vault(Path(args.vault))
-            report = validate_index(index)
+            index = index_vault(vault_root(), vault_profile_name=vault_profile_name(), config_root=config_root)
+            report = validate_index(index, vault_profile_name=vault_profile_name(), config_root=config_root)
             metrics = compute_metrics(index, report)
             print(json.dumps(metrics, indent=2, sort_keys=True))
             return 0
@@ -156,21 +246,29 @@ def main() -> int:
 
         if args.command == "ingest-file":
             plan = ingest_file(
-                vault_root=Path(args.vault),
+                vault_root=vault_root(),
                 input_path=Path(args.input),
                 origin=args.origin,
                 title=args.title,
                 profile_name=args.profile,
+                vault_profile_name=vault_profile_name(),
                 model_override=args.model,
-                config_root=Path(args.config_root),
+                allow_existing_people_updates=args.allow_existing_people_updates,
+                config_root=config_root,
             )
             if args.plan_output:
                 save_plan(plan, Path(args.plan_output))
             result = {"plan": plan.to_dict()}
             if args.apply:
-                apply_result = apply_ingestion_plan(Path(args.vault), plan)
-                check_index = index_vault(Path(args.vault))
-                check_report = validate_index(check_index)
+                apply_result = apply_ingestion_plan(
+                    vault_root(),
+                    plan,
+                    vault_profile_name=vault_profile_name(),
+                    config_root=config_root,
+                    backup_dir=backup_dir(),
+                )
+                check_index = index_vault(vault_root(), vault_profile_name=vault_profile_name(), config_root=config_root)
+                check_report = validate_index(check_index, vault_profile_name=vault_profile_name(), config_root=config_root)
                 result["apply"] = apply_result
                 result["check"] = check_report
                 print(json.dumps(result, indent=2, sort_keys=True))
@@ -180,22 +278,30 @@ def main() -> int:
 
         if args.command == "ingest-conversation":
             plan = ingest_conversation(
-                vault_root=Path(args.vault),
+                vault_root=vault_root(),
                 input_path=Path(args.input),
                 origin=args.origin,
                 title=args.title,
                 channel=args.channel,
                 profile_name=args.profile,
+                vault_profile_name=vault_profile_name(),
                 model_override=args.model,
-                config_root=Path(args.config_root),
+                allow_existing_people_updates=args.allow_existing_people_updates,
+                config_root=config_root,
             )
             if args.plan_output:
                 save_plan(plan, Path(args.plan_output))
             result = {"plan": plan.to_dict()}
             if args.apply:
-                apply_result = apply_ingestion_plan(Path(args.vault), plan)
-                check_index = index_vault(Path(args.vault))
-                check_report = validate_index(check_index)
+                apply_result = apply_ingestion_plan(
+                    vault_root(),
+                    plan,
+                    vault_profile_name=vault_profile_name(),
+                    config_root=config_root,
+                    backup_dir=backup_dir(),
+                )
+                check_index = index_vault(vault_root(), vault_profile_name=vault_profile_name(), config_root=config_root)
+                check_report = validate_index(check_index, vault_profile_name=vault_profile_name(), config_root=config_root)
                 result["apply"] = apply_result
                 result["check"] = check_report
                 print(json.dumps(result, indent=2, sort_keys=True))
@@ -204,18 +310,21 @@ def main() -> int:
             return 0
 
         if args.command == "ingest-batch-files":
-            runtime = load_runtime_config(Path(args.config_root))
+            runtime = load_runtime_config(config_root, runtime_config_path=runtime_config_path)
             input_dir = Path(args.input_dir) if args.input_dir else Path(runtime.get("paths", {}).get("default_batch_input_dir", "files"))
             summary = ingest_files_directory(
-                vault_root=Path(args.vault),
+                vault_root=vault_root(),
                 input_dir=input_dir,
                 apply=args.apply,
                 profile_name=args.profile or runtime.get("default_profiles", {}).get("batch"),
+                vault_profile_name=vault_profile_name(),
                 model_override=args.model,
-                config_root=Path(args.config_root),
+                config_root=config_root,
+                backup_dir=backup_dir(),
                 plan_dir=Path(args.plan_dir) if args.plan_dir else None,
                 limit=args.limit,
                 pattern=args.glob,
+                allow_existing_people_updates=args.allow_existing_people_updates,
             )
             if args.summary_output:
                 summary_output = Path(args.summary_output)
@@ -231,12 +340,43 @@ def main() -> int:
             print(json.dumps(result, indent=2, sort_keys=True))
             return 0
 
+        if args.command == "repair-graph":
+            plan = plan_graph_repairs(
+                vault_root=vault_root(),
+                vault_profile_name=vault_profile_name(),
+                config_root=config_root,
+            )
+            if args.plan_output:
+                save_repair_plan(plan, Path(args.plan_output))
+            result = {"plan": plan.to_dict()}
+            if args.apply:
+                apply_result = apply_repair_plan(
+                    vault_root(),
+                    plan,
+                    vault_profile_name=vault_profile_name(),
+                    config_root=config_root,
+                    backup_dir=backup_dir(),
+                )
+                check_index = index_vault(vault_root(), vault_profile_name=vault_profile_name(), config_root=config_root)
+                check_report = validate_index(check_index, vault_profile_name=vault_profile_name(), config_root=config_root)
+                result["apply"] = apply_result
+                result["check"] = check_report
+                result["metrics"] = compute_metrics(check_index, check_report)
+            print(json.dumps(result, indent=2, sort_keys=True))
+            return 0
+
+        if args.command == "runtime-contract-check":
+            result = validate_runtime_contract(Path(args.contract))
+            print(json.dumps(result, indent=2, sort_keys=True))
+            return 1 if result.get("issue_count") else 0
+
         if args.command == "benchmark-run":
             result = run_benchmark_manifest(
                 Path(args.manifest),
                 profile_name=args.profile,
+                vault_profile_name=args.vault_profile,
                 model_override=args.model,
-                config_root=Path(args.config_root),
+                config_root=config_root,
                 keep_workdirs=args.keep_workdirs,
             )
             if args.output:
@@ -247,7 +387,7 @@ def main() -> int:
             return 0 if result.get("all_passed") else 1
 
         if args.command == "qa-run":
-            index = index_vault(Path(args.vault))
+            index = index_vault(vault_root(), vault_profile_name=vault_profile_name(), config_root=config_root)
             questions = load_question_set(Path(args.questions))
             result = run_question_set(
                 index,
@@ -265,7 +405,7 @@ def main() -> int:
         if args.command == "self-update-run":
             result = run_self_update(
                 policy_path=Path(args.policy),
-                config_root=Path(args.config_root),
+                config_root=config_root,
                 proposal_profile_name=args.proposal_profile,
                 proposal_model_override=args.proposal_model,
                 benchmark_profile_name=args.benchmark_profile,

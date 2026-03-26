@@ -7,6 +7,7 @@ from collections import Counter, defaultdict
 from typing import Any
 
 from .contracts import CANONICAL_TYPES
+from .utils import identity_text_variants
 
 PRIMARY_SOURCE_RE = re.compile(r"Source:\s*\[\[([^\]]+#\^[A-Za-z0-9_-]+)\]\]")
 
@@ -158,14 +159,13 @@ def _canonical_graph_stats(notes: list[dict[str, Any]]) -> dict[str, int]:
 
 
 def _note_identity_names(note: dict[str, Any]) -> set[str]:
-    names = {
-        _normalize(str(note.get("title", ""))),
-        _normalize(str(note.get("stem", ""))),
-        _normalize(str(note.get("metadata", {}).get("canonical_slug", ""))),
-    }
+    names: set[str] = set()
+    names.update(identity_text_variants(str(note.get("title", ""))))
+    names.update(identity_text_variants(str(note.get("stem", ""))))
+    names.update(identity_text_variants(str(note.get("metadata", {}).get("canonical_slug", ""))))
     for alias in note.get("metadata", {}).get("aliases", []):
         if isinstance(alias, str):
-            names.add(_normalize(alias))
+            names.update(identity_text_variants(alias))
     return {name for name in names if name}
 
 

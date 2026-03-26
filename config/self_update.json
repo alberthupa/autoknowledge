@@ -33,6 +33,60 @@
     "max_retrieval_qa_regression": 0.03,
     "max_canonical_link_density_regression": 0.02,
     "min_score_improvement": 0.01,
-    "primary_metric_min_improvement": 0.01
+    "primary_metric_min_improvement": 0.01,
+    "primary_cluster_requirements": {
+      "hard_constraint_failure": {
+        "metric": "hard_constraint_issue_count",
+        "direction": "decrease",
+        "min_delta": 1.0
+      },
+      "idempotence_failure": {
+        "metric": "failed_case_count",
+        "direction": "decrease",
+        "min_delta": 1.0
+      },
+      "benchmark_failure": {
+        "metric": "failed_case_count",
+        "direction": "decrease",
+        "min_delta": 1.0
+      },
+      "low_retrieval_qa_accuracy": {
+        "metric": "retrieval_qa_accuracy",
+        "direction": "increase",
+        "min_delta": 0.01
+      },
+      "low_retrieval_citation_hit_rate": {
+        "metric": "retrieval_qa_citation_hit_rate",
+        "direction": "increase",
+        "min_delta": 0.01
+      },
+      "high_graph_churn_rate": {
+        "metric": "graph_churn_rate",
+        "direction": "decrease",
+        "min_delta": 0.002,
+        "min_relative_improvement": 0.05
+      },
+      "high_duplicate_note_rate": {
+        "metric": "duplicate_note_rate",
+        "direction": "decrease",
+        "min_delta": 0.001,
+        "min_relative_improvement": 0.05
+      },
+      "high_duplicate_cluster_count": {
+        "metric": "duplicate_cluster_count",
+        "direction": "decrease",
+        "min_delta": 1.0
+      },
+      "low_canonical_link_density": {
+        "metric": "canonical_link_density",
+        "direction": "increase",
+        "min_delta": 0.01
+      },
+      "high_isolated_note_rate": {
+        "metric": "isolated_note_rate",
+        "direction": "decrease",
+        "min_delta": 0.01
+      }
+    }
   }
 }

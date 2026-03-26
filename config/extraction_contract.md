@@ -63,11 +63,17 @@ Required fields:
   "canonical_slug": "stable slug",
   "confidence": "high | medium | low",
   "aliases": ["alternate names"],
+  "entity_kind": "optional placement subtype for entity notes",
   "source_refs": ["[[...#^e0001]]"],
   "claims": [],
   "relationships": []
 }
 ```
+
+Notes:
+
+- `kind` may still be used by the extractor as heuristic origin metadata such as `speaker`, `named_entity`, or `keyword`
+- `entity_kind` is the vault-facing placement subtype for entity notes when the target vault profile distinguishes folders like `people` or `companies`
 
 ## Claim
 

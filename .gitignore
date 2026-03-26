@@ -7,6 +7,8 @@ scratch/
 candidate_worktree/
 sandbox_vault/
 .obsidian/
+config/runtime.local.json
+config/runtime.*.local.json
 
 artifacts/*
 !artifacts/README.md

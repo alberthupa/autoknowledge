@@ -4,7 +4,7 @@
     {
       "id": "mars_overview_idempotent",
       "input_kind": "file",
-      "input_path": "../../files/00 mars gemini - overview.md",
+      "input_path": "../shared/fixtures/mars_overview.md",
       "profile": "deterministic_minimal",
       "expect": {
         "outcome": "success",
@@ -15,8 +15,8 @@
         "grounded_note_rate_min": 1.0,
         "orphan_note_rate_max": 0.0,
         "duplicate_note_rate_max": 0.05,
-        "canonical_note_count_min": 10,
-        "claim_count_min": 10,
+        "canonical_note_count_min": 11,
+        "claim_count_min": 12,
         "windowed": true,
         "window_count_min": 2,
         "reingest_noop": true
@@ -25,7 +25,7 @@
     {
       "id": "openai_reference_windowed",
       "input_kind": "file",
-      "input_path": "../../files/openai.md",
+      "input_path": "../shared/fixtures/openai_reference.md",
       "profile": "deterministic_minimal",
       "expect": {
         "outcome": "success",
@@ -36,16 +36,16 @@
         "grounded_note_rate_min": 1.0,
         "orphan_note_rate_max": 0.0,
         "duplicate_note_rate_max": 0.15,
-        "canonical_note_count_min": 40,
-        "claim_count_min": 50,
+        "canonical_note_count_min": 13,
+        "claim_count_min": 14,
         "windowed": true,
-        "window_count_min": 3
+        "window_count_min": 2
       }
     },
     {
       "id": "project_overview_windowed",
       "input_kind": "file",
-      "input_path": "../../files/init project overview.md",
+      "input_path": "../shared/fixtures/project_overview.md",
       "profile": "deterministic_minimal",
       "expect": {
         "outcome": "success",
@@ -56,16 +56,42 @@
         "grounded_note_rate_min": 1.0,
         "orphan_note_rate_max": 0.0,
         "duplicate_note_rate_max": 0.15,
-        "canonical_note_count_min": 25,
-        "claim_count_min": 30,
+        "canonical_note_count_min": 13,
+        "claim_count_min": 13,
         "windowed": true,
-        "window_count_min": 3
+        "window_count_min": 2
+      }
+    },
+    {
+      "id": "article_alias_dedup",
+      "input_kind": "file",
+      "input_path": "../shared/fixtures/article_alias_dedup.md",
+      "profile": "deterministic_minimal",
+      "expect": {
+        "outcome": "success",
+        "hard_constraint_issue_count_max": 0,
+        "broken_link_count_max": 0,
+        "citation_coverage_min": 1.0,
+        "unsupported_claim_rate_max": 0.0,
+        "grounded_note_rate_min": 1.0,
+        "orphan_note_rate_max": 0.0,
+        "duplicate_note_rate_max": 0.0,
+        "canonical_note_count_min": 3,
+        "claim_count_min": 4,
+        "windowed": false,
+        "expected_note_paths_all": [
+          "entities/mars.md",
+          "entities/portability.md"
+        ],
+        "forbidden_note_paths_all": [
+          "entities/the-mars.md"
+        ]
       }
     },
     {
       "id": "empty_input_guard",
       "input_kind": "file",
-      "input_path": "../../files/Daria Kozachenko.md",
+      "input_path": "../shared/fixtures/empty_input.md",
       "profile": "deterministic_minimal",
       "expect": {
         "outcome": "error",

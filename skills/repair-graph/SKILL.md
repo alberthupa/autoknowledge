@@ -10,6 +10,7 @@ Repair structural problems in the vault without changing the underlying meaning 
 - orphan notes accumulate
 - backlink structure is weak
 - naming or placement has drifted
+- a deterministic `repair-graph` runtime pass is requested
 
 ## Outputs
 
@@ -30,6 +31,7 @@ Repair structural problems in the vault without changing the underlying meaning 
 - structural cleanup must not erase evidence
 - repairs must be reversible when possible
 - ambiguity is not a license for aggressive consolidation
+- automatic repairs should stop at deterministic structural fixes; duplicate merges need stronger evidence and usually manual review first
 
 ## Success
 

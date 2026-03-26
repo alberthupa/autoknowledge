@@ -24,6 +24,18 @@ def load_self_update_policy(path: Path | None = None) -> dict[str, Any]:
     return json.loads(policy_path.read_text(encoding="utf-8"))
 
 
+def _make_workspace(*, prefix: str, keep_workdirs: bool) -> tuple[Path, Any]:
+    if keep_workdirs:
+        root = Path(tempfile.mkdtemp(prefix=prefix))
+
+        def _cleanup() -> None:
+            return None
+
+        return root, _cleanup
+    workspace = tempfile.TemporaryDirectory(prefix=prefix)
+    return Path(workspace.name), workspace.cleanup
+
+
 def run_self_update(
     *,
     policy_path: Path | None = None,
@@ -100,8 +112,11 @@ def run_self_update(
         _validate_target_path(proposal["target_path"], policy.get("allowed_skill_targets", []))
         _write_json(run_dir / "proposal.json", proposal)
 
-        candidate_workspace = tempfile.TemporaryDirectory(prefix=f"autoknowledge_self_update_{run_id}_")
-        candidate_repo_root = Path(candidate_workspace.name) / "repo"
+        candidate_workspace_root, cleanup_workspace = _make_workspace(
+            prefix=f"autoknowledge_self_update_{run_id}_",
+            keep_workdirs=keep_workdirs,
+        )
+        candidate_repo_root = candidate_workspace_root / "repo"
         shutil.copytree(
             live_repo_root,
             candidate_repo_root,
@@ -157,9 +172,8 @@ def run_self_update(
             details_path=str(run_dir / "result.json"),
             metrics_path=str(run_dir / "candidate" / "summary.json"),
         )
-        if not keep_workdirs:
-            candidate_workspace.cleanup()
-        else:
+        cleanup_workspace()
+        if keep_workdirs:
             result["candidate_workspace"] = str(candidate_repo_root)
         return result
     except Exception as exc:  # noqa: BLE001
@@ -785,6 +799,23 @@ def _compute_composite_score(aggregate: dict[str, Any]) -> float:
 def _primary_cluster_requirement(*, cluster_code: str, comparison: dict[str, Any]) -> dict[str, Any] | None:
     if not cluster_code:
         return None
+    configured_requirements = comparison.get("primary_cluster_requirements", {})
+    if isinstance(configured_requirements, dict):
+        configured = configured_requirements.get(cluster_code)
+        if isinstance(configured, dict):
+            metric = str(configured.get("metric", "")).strip()
+            direction = str(configured.get("direction", "")).strip()
+            if metric and direction in {"increase", "decrease"}:
+                requirement = {
+                    "metric": metric,
+                    "direction": direction,
+                }
+                if "min_delta" in configured:
+                    requirement["min_delta"] = float(configured.get("min_delta", 0.0))
+                if "min_relative_improvement" in configured:
+                    requirement["min_relative_improvement"] = float(configured.get("min_relative_improvement", 0.0))
+                return requirement
+
     floor = float(comparison.get("primary_metric_min_improvement", 0.0))
     mapping = {
         "hard_constraint_failure": {"metric": "hard_constraint_issue_count", "direction": "decrease", "min_delta": max(floor, 1.0)},
@@ -813,24 +844,37 @@ def _check_primary_cluster_improvement(
     metric = str(requirement.get("metric", "")).strip()
     direction = str(requirement.get("direction", "")).strip()
     min_delta = float(requirement.get("min_delta", 0.0))
+    min_relative_improvement = float(requirement.get("min_relative_improvement", 0.0))
     left = baseline.get(metric)
     right = candidate.get(metric)
     if left is None or right is None:
         return None
 
+    baseline_value = float(left)
+    candidate_value = float(right)
     if direction == "decrease":
-        improvement = float(left) - float(right)
-        if improvement >= min_delta:
-            return f"primary cluster {cluster_code} improved via {metric} by {improvement:.4f}"
+        improvement = baseline_value - candidate_value
+    elif direction == "increase":
+        improvement = candidate_value - baseline_value
+    else:
         return None
 
-    if direction == "increase":
-        improvement = float(right) - float(left)
-        if improvement >= min_delta:
-            return f"primary cluster {cluster_code} improved via {metric} by {improvement:.4f}"
+    if improvement <= 0:
         return None
 
-    return None
+    meets_absolute = improvement >= min_delta if min_delta > 0 else True
+    relative_improvement = None
+    if min_relative_improvement > 0 and baseline_value != 0:
+        relative_improvement = improvement / abs(baseline_value)
+    meets_relative = relative_improvement is not None and relative_improvement >= min_relative_improvement
+
+    if not meets_absolute and not meets_relative:
+        return None
+
+    reason = f"primary cluster {cluster_code} improved via {metric} by {improvement:.4f}"
+    if relative_improvement is not None:
+        reason += f" ({relative_improvement:.2%})"
+    return reason
 
 
 def _reject_if_higher(
